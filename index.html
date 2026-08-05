@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja">
 <meta charset="utf-8">
-<title>ポーカー得点帳</title>
+<title>人生フルベット</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <style>
   :root {
@@ -455,8 +455,8 @@
 <div class="wrap">
   <header class="app">
     <div class="brand">
-      <div class="eyebrow">Home Game Ledger</div>
-      <h1>ポーカー得点帳</h1>
+      <div class="eyebrow">All-in on Life</div>
+      <h1>人生フルベット</h1>
     </div>
     <div class="brand suits">♠ ♥ ♦ ♣</div>
   </header>
@@ -495,13 +495,23 @@ const BUYIN = 20;
 /*
  state = {
    players: [{id, name, retired?}],
-   sessions: [{n, date, endedAt, games: [{results:{pid:points}}], results: {pid:{net,busts,games}}}],
-   current: {startedAt, games: [{results:{pid:points}}]} | null
+   sessions: [{n, date, endedAt, games: [{results:{pid:収支}, v:2}], results: {pid:{net,busts,games}}}],
+   current: {startedAt, games: [{results:{pid:収支}, v:2}]} | null
  }
+ ゲームのresultsは収支（±）を直接持つ。v:2が無い旧ゲームは「残り点」形式なので読み込み時に移行。
  旧形式の sessions[].results[pid] = {points, busts} も entryNet() で読める。
 */
 function defaultState() {
   return { players: [], sessions: [], current: null };
+}
+function migrateGames(games) { // 残り点形式(v無し) → 収支形式(v:2)
+  if (!Array.isArray(games)) return;
+  games.forEach(g => {
+    if (g.v !== 2) {
+      Object.keys(g.results).forEach(k => { g.results[k] = g.results[k] - BUYIN; });
+      g.v = 2;
+    }
+  });
 }
 function loadState() {
   try {
@@ -511,6 +521,8 @@ function loadState() {
     if (!s || !Array.isArray(s.players) || !Array.isArray(s.sessions)) return defaultState();
     let current = s.current || null;
     if (current && !Array.isArray(current.games)) current = null; // 旧形式の進行中データは破棄
+    if (current) migrateGames(current.games);
+    s.sessions.forEach(x => migrateGames(x.games));
     return { players: s.players, sessions: s.sessions, current: current };
   } catch (e) {
     return defaultState();
@@ -605,8 +617,8 @@ function nightTotals() { // 今夜の累計（速報用） {pid: {net, busts, ga
   state.current.games.forEach(g => {
     Object.entries(g.results).forEach(([pid, pts]) => {
       const t = totals[pid] || (totals[pid] = { net: 0, busts: 0, games: 0 });
-      t.net += pts - BUYIN;
-      if (pts === 0) t.busts += 1;
+      t.net += pts;
+      if (pts <= -BUYIN) t.busts += 1;
       t.games += 1;
     });
   });
@@ -616,13 +628,14 @@ function nightTotals() { // 今夜の累計（速報用） {pid: {net, busts, ga
 function openEntry() { entryOpen = true; render(); }
 function closeEntry() { entryOpen = false; render(); }
 
-function setFly(pid) {
+function flipSign(pid) { // マイナスが打ちにくいキーボード向けの符号反転
   const el = document.getElementById('g-' + pid);
-  if (el) { el.value = 0; updateSum(); }
+  if (!el) return;
+  const v = parseInt(el.value, 10);
+  if (!isNaN(v)) { el.value = -v; updateSum(); }
 }
 function updateSum() {
   const inputs = Array.from(document.querySelectorAll('input[id^="g-"]'));
-  const expected = BUYIN * inputs.length;
   let sum = 0, filled = 0;
   inputs.forEach(i => {
     const v = parseInt(i.value, 10);
@@ -630,8 +643,8 @@ function updateSum() {
   });
   const el = document.getElementById('sum-indicator');
   if (!el) return;
-  el.textContent = sum + ' / ' + expected + 'pt';
-  el.className = 'sum-val ' + (filled === inputs.length && sum === expected ? 'sum-ok' : 'sum-ng');
+  el.textContent = fmtSigned(sum) + 'pt';
+  el.className = 'sum-val ' + (filled === inputs.length && sum === 0 ? 'sum-ok' : 'sum-ng');
 }
 
 function saveGame() {
@@ -641,22 +654,21 @@ function saveGame() {
   for (const inp of inputs) {
     const pid = inp.id.slice(2);
     const v = parseInt(inp.value, 10);
-    if (inp.value.trim() === '' || isNaN(v) || v < 0) {
-      toast('全員分の残り点を入力してください（飛んだ人は0）');
+    if (inp.value.trim() === '' || isNaN(v)) {
+      toast('全員分の収支を入力してください（飛んだ人は −' + BUYIN + '）');
       inp.focus();
       return;
     }
     results[pid] = v;
   }
   const sum = Object.values(results).reduce((a, b) => a + b, 0);
-  const expected = BUYIN * inputs.length;
-  const flew = Object.values(results).filter(v => v === 0).length;
+  const flew = Object.values(results).filter(v => v <= -BUYIN).length;
   let warns = [];
-  if (flew === 0) warns.push('0pt（飛び）の人がいません。');
-  if (sum !== expected) warns.push('チップ合計が ' + sum + 'pt で、期待値 ' + expected + 'pt と合いません。');
+  if (flew === 0) warns.push('−' + BUYIN + 'pt（飛び）の人がいません。');
+  if (sum !== 0) warns.push('収支の合計が ' + fmtSigned(sum) + 'pt です（全員でプラマイ0のはず）。');
   if (warns.length && !confirm(warns.join('\n') + '\nこのまま記録しますか？')) return;
 
-  state.current.games.push({ results: results, at: new Date().toISOString() });
+  state.current.games.push({ results: results, at: new Date().toISOString(), v: 2 });
   entryOpen = false;
   save();
   render();
@@ -763,6 +775,8 @@ function restoreBackup() {
     if (!confirm('現在のデータを貼り付けた内容で置き換えますか？')) return;
     let current = s.current || null;
     if (current && !Array.isArray(current.games)) current = null;
+    if (current) migrateGames(current.games);
+    s.sessions.forEach(x => migrateGames(x.games));
     state = { players: s.players, sessions: s.sessions, current: current };
     save();
     closeBackup();
@@ -838,17 +852,17 @@ function renderFlash() { // 速報パネル
 function renderEntryForm() {
   const gameNo = state.current.games.length + 1;
   let html = '<div class="card"><h2>ゲーム' + gameNo + ' の結果を入力</h2>' +
-    '<p class="sub">飛んだ時点の全員の残り点を入力（飛んだ人は0）</p>';
+    '<p class="sub">各自の収支（±）を入力。飛んだ人は −' + BUYIN + '</p>';
   activePlayers().forEach(p => {
     html += '<div class="entry-row">' +
       '<span class="ename">' + esc(p.name) + '</span>' +
-      '<button class="fly-btn" onclick="setFly(\'' + p.id + '\')">飛び</button>' +
-      '<input id="g-' + p.id + '" type="number" inputmode="numeric" min="0" placeholder="pt" ' +
-        'aria-label="' + esc(p.name) + 'の残り点" oninput="updateSum()">' +
+      '<button class="fly-btn" title="符号を反転" aria-label="' + esc(p.name) + 'の符号を反転" onclick="flipSign(\'' + p.id + '\')">±</button>' +
+      '<input id="g-' + p.id + '" type="number" inputmode="numeric" placeholder="±pt" ' +
+        'aria-label="' + esc(p.name) + 'の収支" oninput="updateSum()">' +
     '</div>';
   });
-  html += '<div class="sum-line"><span>チップ合計（' + BUYIN + 'pt × ' + activePlayers().length + '人）</span>' +
-    '<span id="sum-indicator" class="sum-val">0 / ' + (BUYIN * activePlayers().length) + 'pt</span></div>' +
+  html += '<div class="sum-line"><span>収支合計（全員でプラマイ0のはず）</span>' +
+    '<span id="sum-indicator" class="sum-val">0pt</span></div>' +
     '<div class="entry-actions">' +
       '<button class="btn btn-ghost" onclick="closeEntry()">やめる</button>' +
       '<button class="btn btn-gold" onclick="saveGame()">記録して次のゲームへ</button>' +
@@ -861,7 +875,7 @@ function renderGameLog() {
   if (games.length === 0) return '';
   const pids = state.players.filter(p => games.some(g => g.results[p.id] !== undefined));
   let html = '<div class="card"><h2>今夜のゲーム記録</h2>' +
-    '<p class="sub">各ゲームの収支（残り点 − ' + BUYIN + 'pt）</p>' +
+    '<p class="sub">各ゲームの収支</p>' +
     '<div class="table-scroll"><table class="hist"><thead><tr><th>G</th>';
   pids.forEach(p => { html += '<th>' + esc(p.name) + '</th>'; });
   html += '<th></th></tr></thead><tbody>';
@@ -870,9 +884,8 @@ function renderGameLog() {
     pids.forEach(p => {
       const pts = g.results[p.id];
       if (pts === undefined) { html += '<td class="val-zero">—</td>'; return; }
-      const n = pts - BUYIN;
-      html += '<td class="num ' + valClass(n) + '">' + fmtSigned(n) +
-        (pts === 0 ? ' <span class="fly-mark">飛</span>' : '') + '</td>';
+      html += '<td class="num ' + valClass(pts) + '">' + fmtSigned(pts) +
+        (pts <= -BUYIN ? ' <span class="fly-mark">飛</span>' : '') + '</td>';
     });
     html += '<td><button class="del-sess" onclick="deleteGame(' + i + ')">削除</button></td></tr>';
   });
@@ -903,8 +916,8 @@ function renderTable() {
     html += '<div class="footer-actions">' +
       '<button class="btn btn-primary btn-block" onclick="endSession()"' +
       (state.current.games.length === 0 ? ' disabled' : '') + '>今夜の卓を締める</button></div>' +
-      '<p class="note">誰かが飛んだらゲーム終了。全員の残り点を記録して、次のゲームは全員' + BUYIN + 'ptから。' +
-      '収支 ＝ 残り点 − ' + BUYIN + 'pt（飛んだ人は −' + BUYIN + 'pt）。</p>';
+      '<p class="note">誰かが飛んだらゲーム終了。各自の収支（±）を記録して、次のゲームは全員' + BUYIN + 'ptから。' +
+      '飛んだ人は −' + BUYIN + 'pt。</p>';
     v.innerHTML = html;
   } else {
     let html = '<div class="card"><h2>プレイヤー</h2>' +
@@ -991,9 +1004,8 @@ function renderStats() {
           cols.forEach(p => {
             const pts = g.results[p.id];
             if (pts === undefined) { html += '<td class="val-zero">—</td>'; return; }
-            const gn = pts - BUYIN;
-            html += '<td class="num ' + valClass(gn) + '">' + fmtSigned(gn) +
-              (pts === 0 ? ' <span class="fly-mark">飛</span>' : '') + '</td>';
+            html += '<td class="num ' + valClass(pts) + '">' + fmtSigned(pts) +
+              (pts <= -BUYIN ? ' <span class="fly-mark">飛</span>' : '') + '</td>';
           });
           html += '<td></td></tr>';
         });
