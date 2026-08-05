@@ -1,0 +1,1028 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>ポーカー得点帳</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+  :root {
+    --bg: #EFF2EC;
+    --surface: #FFFFFF;
+    --surface2: #E7EDE6;
+    --ink: #1F2A24;
+    --muted: #5C6B62;
+    --line: #D5DED5;
+    --felt: #1B5E43;
+    --felt-ink: #FFFFFF;
+    --gold: #A87B22;
+    --gold-soft: #F3E9D2;
+    --red: #B5402C;
+    --red-soft: #F6E4E0;
+    --pos: #1E7A46;
+    --neg: #B5402C;
+    --shadow: 0 1px 3px rgba(20, 40, 30, .10);
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0D211A;
+      --surface: #163227;
+      --surface2: #1C3D30;
+      --ink: #EAE6D8;
+      --muted: #9DB0A4;
+      --line: #29503F;
+      --felt: #2E8B64;
+      --felt-ink: #07130E;
+      --gold: #D9A441;
+      --gold-soft: #33402A;
+      --red: #E06A50;
+      --red-soft: #46281F;
+      --pos: #6CC08B;
+      --neg: #E06A50;
+      --shadow: 0 1px 4px rgba(0, 0, 0, .35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #EFF2EC;
+    --surface: #FFFFFF;
+    --surface2: #E7EDE6;
+    --ink: #1F2A24;
+    --muted: #5C6B62;
+    --line: #D5DED5;
+    --felt: #1B5E43;
+    --felt-ink: #FFFFFF;
+    --gold: #A87B22;
+    --gold-soft: #F3E9D2;
+    --red: #B5402C;
+    --red-soft: #F6E4E0;
+    --pos: #1E7A46;
+    --neg: #B5402C;
+    --shadow: 0 1px 3px rgba(20, 40, 30, .10);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0D211A;
+    --surface: #163227;
+    --surface2: #1C3D30;
+    --ink: #EAE6D8;
+    --muted: #9DB0A4;
+    --line: #29503F;
+    --felt: #2E8B64;
+    --felt-ink: #07130E;
+    --gold: #D9A441;
+    --gold-soft: #33402A;
+    --red: #E06A50;
+    --red-soft: #46281F;
+    --pos: #6CC08B;
+    --neg: #E06A50;
+    --shadow: 0 1px 4px rgba(0, 0, 0, .35);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font-family: inherit; cursor: pointer; }
+  button:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
+
+  .wrap { max-width: 560px; margin: 0 auto; padding: 0 16px 96px; }
+
+  header.app {
+    padding: 20px 0 12px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .brand .eyebrow {
+    font-size: 11px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--gold);
+    font-weight: 600;
+  }
+  .brand h1 {
+    margin: 2px 0 0;
+    font-family: var(--serif);
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    text-wrap: balance;
+  }
+  .brand .suits { color: var(--muted); font-size: 13px; letter-spacing: .3em; }
+
+  nav.tabs {
+    display: flex;
+    gap: 6px;
+    background: var(--surface2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 4px;
+    margin-bottom: 16px;
+  }
+  nav.tabs button {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 0;
+    border-radius: 999px;
+  }
+  nav.tabs button[aria-selected="true"] {
+    background: var(--felt);
+    color: var(--felt-ink);
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .card h2 {
+    margin: 0 0 4px;
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .card .sub { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+
+  /* ---- player row (setup) ---- */
+  .player-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .player-row:last-of-type { border-bottom: 0; }
+  .player-row .name { flex: 1; font-weight: 600; }
+  .player-row .meta { color: var(--muted); font-size: 12px; }
+  .icon-btn {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--muted);
+    border-radius: 8px;
+    width: 34px;
+    height: 34px;
+    font-size: 15px;
+    line-height: 1;
+  }
+  .add-form { display: flex; gap: 8px; margin-top: 12px; }
+  .add-form input {
+    flex: 1;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 16px;
+    min-width: 0;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 0;
+    border-radius: 10px;
+    padding: 12px 18px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .btn-primary { background: var(--felt); color: var(--felt-ink); }
+  .btn-gold { background: var(--gold); color: var(--bg); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    font-weight: 600;
+  }
+  .btn-block { width: 100%; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .session-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    gap: 8px;
+  }
+  .session-bar .title { font-family: var(--serif); font-size: 17px; font-weight: 600; }
+  .session-bar .date { color: var(--muted); font-size: 12px; }
+
+  /* ---- 速報 ---- */
+  .flash-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .flash-row:last-of-type { border-bottom: 0; }
+  .flash-no {
+    font-family: var(--serif);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--muted);
+    width: 22px;
+    text-align: center;
+  }
+  .flash-row.leader .flash-no { color: var(--gold); }
+  .flash-main { flex: 1; min-width: 0; }
+  .flash-main .fname { font-weight: 700; font-size: 14px; }
+  .flash-main .fname .crown { color: var(--gold); }
+  .flash-main .fmeta { color: var(--muted); font-size: 11px; }
+  .flash-net {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 19px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .flash-net .u { font-size: 11px; color: var(--muted); font-weight: 600; }
+
+  /* ---- game entry form ---- */
+  .entry-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .entry-row:last-of-type { border-bottom: 0; }
+  .entry-row .ename { flex: 1; font-weight: 600; font-size: 14px; }
+  .entry-row input {
+    width: 76px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 9px 10px;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 18px;
+    font-weight: 700;
+    text-align: right;
+  }
+  .fly-btn {
+    border: 1px solid var(--red);
+    background: transparent;
+    color: var(--red);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .sum-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 10px 0 12px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .sum-line .sum-val {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+  }
+  .sum-ok { color: var(--pos); }
+  .sum-ng { color: var(--neg); }
+  .entry-actions { display: flex; gap: 8px; }
+  .entry-actions .btn { flex: 1; }
+
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .card-head h2 { margin: 0; }
+  .mini-tabs { display: flex; gap: 4px; background: var(--surface2); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+  .mini-tabs button { border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 999px; }
+  .mini-tabs button[aria-selected="true"] { background: var(--felt); color: var(--felt-ink); }
+
+  /* ---- tables ---- */
+  .val-pos { color: var(--pos); }
+  .val-neg { color: var(--neg); }
+  .val-zero { color: var(--muted); }
+
+  .table-scroll { overflow-x: auto; margin: 0 -16px; padding: 0 16px; }
+  table.hist {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 380px;
+    font-size: 13px;
+  }
+  table.hist th, table.hist td {
+    padding: 8px 10px;
+    text-align: right;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  table.hist th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  table.hist th:first-child, table.hist td:first-child { text-align: left; }
+  table.hist td.num { font-family: var(--mono); }
+  table.hist td .sess-date { color: var(--muted); font-size: 11px; display: block; }
+  table.hist tfoot td { font-weight: 700; border-top: 2px solid var(--line); border-bottom: 0; }
+  .fly-mark { color: var(--red); font-size: 11px; font-weight: 700; }
+  .del-sess {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 2px 6px;
+    text-decoration: underline;
+  }
+
+  /* ---- standings ---- */
+  .rank-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .rank-row:last-of-type { border-bottom: 0; }
+  .rank-no {
+    font-family: var(--serif);
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--muted);
+    width: 26px;
+    text-align: center;
+  }
+  .rank-row.leader .rank-no { color: var(--gold); }
+  .rank-main { flex: 1; min-width: 0; }
+  .rank-main .rname { font-weight: 700; }
+  .rank-main .rname .crown { color: var(--gold); }
+  .rank-main .rmeta { color: var(--muted); font-size: 12px; }
+  .rank-total {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 22px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .rank-total .u { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+    padding: 24px 8px;
+  }
+  .empty .suits { font-size: 20px; letter-spacing: .35em; display: block; margin-bottom: 8px; color: var(--felt); }
+
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tools .btn { flex: 1; min-width: 140px; padding: 10px 12px; font-size: 13px; }
+
+  .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .hidden { display: none !important; }
+  .footer-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .footer-actions .btn { flex: 1; }
+
+  #toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    background: var(--ink);
+    color: var(--bg);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 18px;
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s;
+    max-width: 90vw;
+    text-align: center;
+  }
+  #toast.show { opacity: 1; }
+
+  #backup-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 20;
+  }
+  #backup-modal .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: var(--shadow);
+  }
+  #backup-modal h2 { margin: 0 0 4px; font-family: var(--serif); font-size: 18px; font-weight: 600; }
+  #backup-modal .sub { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+  #backup-modal textarea {
+    width: 100%;
+    height: 170px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.4;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 10px;
+    resize: vertical;
+  }
+  #backup-modal .entry-actions { margin-top: 10px; }
+
+  tr.detail td { background: var(--surface2); font-size: 12px; }
+</style>
+
+<div class="wrap">
+  <header class="app">
+    <div class="brand">
+      <div class="eyebrow">Home Game Ledger</div>
+      <h1>ポーカー得点帳</h1>
+    </div>
+    <div class="brand suits">♠ ♥ ♦ ♣</div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button id="tab-table" role="tab" aria-selected="true" onclick="switchTab('table')">今夜の卓</button>
+    <button id="tab-stats" role="tab" aria-selected="false" onclick="switchTab('stats')">通算成績</button>
+  </nav>
+
+  <section id="view-table" role="tabpanel"></section>
+  <section id="view-stats" role="tabpanel" class="hidden"></section>
+
+  <div id="backup-modal" class="hidden" role="dialog" aria-label="バックアップと復元">
+    <div class="panel">
+      <h2>バックアップ／復元</h2>
+      <p class="sub">下のテキストをコピーして、メモアプリやLINE Keepなどに保管してください。復元するときは、保管したテキストをここに貼り付けて「復元」を押します。</p>
+      <textarea id="backup-text" spellcheck="false" aria-label="バックアップデータ"></textarea>
+      <div class="entry-actions">
+        <button class="btn btn-ghost" onclick="closeBackup()">閉じる</button>
+        <button class="btn btn-ghost" onclick="restoreBackup()">復元</button>
+        <button class="btn btn-primary" onclick="copyBackup()">コピー</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" role="status"></div>
+</div>
+
+<script>
+'use strict';
+
+const KEY = 'poker-ledger-v1';
+const BUYIN = 20;
+
+/* ---------- state ---------- */
+/*
+ state = {
+   players: [{id, name, retired?}],
+   sessions: [{n, date, endedAt, games: [{results:{pid:points}}], results: {pid:{net,busts,games}}}],
+   current: {startedAt, games: [{results:{pid:points}}]} | null
+ }
+ 旧形式の sessions[].results[pid] = {points, busts} も entryNet() で読める。
+*/
+function defaultState() {
+  return { players: [], sessions: [], current: null };
+}
+function loadState() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return defaultState();
+    const s = JSON.parse(raw);
+    if (!s || !Array.isArray(s.players) || !Array.isArray(s.sessions)) return defaultState();
+    let current = s.current || null;
+    if (current && !Array.isArray(current.games)) current = null; // 旧形式の進行中データは破棄
+    return { players: s.players, sessions: s.sessions, current: current };
+  } catch (e) {
+    return defaultState();
+  }
+}
+let state = loadState();
+let entryOpen = false; // ゲーム入力フォームの開閉（保存しない）
+function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+
+/* ---------- helpers ---------- */
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+function fmtSigned(n) { return (n > 0 ? '+' : '') + n; }
+function valClass(n) { return n > 0 ? 'val-pos' : n < 0 ? 'val-neg' : 'val-zero'; }
+function entryNet(e) { // セッション記録の収支（旧形式互換）
+  return (typeof e.net === 'number') ? e.net : e.points - BUYIN * (1 + e.busts);
+}
+function playerById(id) { return state.players.find(p => p.id === id); }
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return (d.getMonth() + 1) + '/' + d.getDate();
+}
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+/* ---------- tabs ---------- */
+function switchTab(name) {
+  document.getElementById('view-table').classList.toggle('hidden', name !== 'table');
+  document.getElementById('view-stats').classList.toggle('hidden', name !== 'stats');
+  document.getElementById('tab-table').setAttribute('aria-selected', name === 'table');
+  document.getElementById('tab-stats').setAttribute('aria-selected', name === 'stats');
+  render();
+}
+
+/* ---------- players ---------- */
+function activePlayers() { return state.players.filter(p => !p.retired); }
+
+function addPlayer(ev) {
+  ev.preventDefault();
+  const input = document.getElementById('new-player-name');
+  const name = input.value.trim();
+  if (!name) return;
+  if (state.players.some(p => p.name === name)) { toast('同じ名前のプレイヤーがいます'); return; }
+  const p = { id: 'p' + Date.now() + Math.floor(Math.random() * 1000), name: name };
+  state.players.push(p);
+  save();
+  input.value = '';
+  render();
+  toast(name + ' さんが着席しました（次のゲームから参加）');
+}
+function removePlayer(id) {
+  const p = playerById(id);
+  if (!p) return;
+  if (state.current) { toast('卓の進行中はプレイヤーを外せません'); return; }
+  const hasHistory = state.sessions.some(s => s.results[id]);
+  if (!confirm(p.name + ' さんを卓から外しますか？' + (hasHistory ? '\n（過去の成績は通算成績に残ります）' : ''))) return;
+  if (hasHistory) {
+    p.retired = true;
+  } else {
+    state.players = state.players.filter(x => x.id !== id);
+  }
+  save();
+  render();
+}
+function reseatPlayer(id) {
+  const p = playerById(id);
+  if (!p) return;
+  delete p.retired;
+  save();
+  render();
+}
+
+/* ---------- session / games ---------- */
+function startSession() {
+  if (activePlayers().length < 2) { toast('プレイヤーを2人以上追加してください'); return; }
+  state.current = { startedAt: new Date().toISOString(), games: [] };
+  entryOpen = false;
+  save();
+  render();
+}
+
+function nightTotals() { // 今夜の累計（速報用） {pid: {net, busts, games}}
+  const totals = {};
+  if (!state.current) return totals;
+  state.current.games.forEach(g => {
+    Object.entries(g.results).forEach(([pid, pts]) => {
+      const t = totals[pid] || (totals[pid] = { net: 0, busts: 0, games: 0 });
+      t.net += pts - BUYIN;
+      if (pts === 0) t.busts += 1;
+      t.games += 1;
+    });
+  });
+  return totals;
+}
+
+function openEntry() { entryOpen = true; render(); }
+function closeEntry() { entryOpen = false; render(); }
+
+function setFly(pid) {
+  const el = document.getElementById('g-' + pid);
+  if (el) { el.value = 0; updateSum(); }
+}
+function updateSum() {
+  const inputs = Array.from(document.querySelectorAll('input[id^="g-"]'));
+  const expected = BUYIN * inputs.length;
+  let sum = 0, filled = 0;
+  inputs.forEach(i => {
+    const v = parseInt(i.value, 10);
+    if (!isNaN(v)) { sum += v; filled += 1; }
+  });
+  const el = document.getElementById('sum-indicator');
+  if (!el) return;
+  el.textContent = sum + ' / ' + expected + 'pt';
+  el.className = 'sum-val ' + (filled === inputs.length && sum === expected ? 'sum-ok' : 'sum-ng');
+}
+
+function saveGame() {
+  if (!state.current) return;
+  const inputs = Array.from(document.querySelectorAll('input[id^="g-"]'));
+  const results = {};
+  for (const inp of inputs) {
+    const pid = inp.id.slice(2);
+    const v = parseInt(inp.value, 10);
+    if (inp.value.trim() === '' || isNaN(v) || v < 0) {
+      toast('全員分の残り点を入力してください（飛んだ人は0）');
+      inp.focus();
+      return;
+    }
+    results[pid] = v;
+  }
+  const sum = Object.values(results).reduce((a, b) => a + b, 0);
+  const expected = BUYIN * inputs.length;
+  const flew = Object.values(results).filter(v => v === 0).length;
+  let warns = [];
+  if (flew === 0) warns.push('0pt（飛び）の人がいません。');
+  if (sum !== expected) warns.push('チップ合計が ' + sum + 'pt で、期待値 ' + expected + 'pt と合いません。');
+  if (warns.length && !confirm(warns.join('\n') + '\nこのまま記録しますか？')) return;
+
+  state.current.games.push({ results: results, at: new Date().toISOString() });
+  entryOpen = false;
+  save();
+  render();
+  toast('ゲーム' + state.current.games.length + ' を記録。全員' + BUYIN + 'ptで再スタート');
+}
+function deleteGame(idx) {
+  if (!state.current) return;
+  if (!confirm('ゲーム' + (idx + 1) + ' の記録を削除しますか？')) return;
+  state.current.games.splice(idx, 1);
+  save();
+  render();
+}
+
+function endSession() {
+  if (!state.current) return;
+  if (state.current.games.length === 0) { toast('まだゲームが記録されていません'); return; }
+  const totals = nightTotals();
+  const lines = Object.entries(totals).map(([pid, t]) => {
+    const p = playerById(pid);
+    return (p ? p.name : '?') + '： 収支 ' + fmtSigned(t.net) + 'pt / 飛び' + t.busts + '回';
+  });
+  if (!confirm('第' + (state.sessions.length + 1) + '回（全' + state.current.games.length + 'ゲーム）を締めますか？\n\n' + lines.join('\n'))) return;
+  state.sessions.push({
+    n: state.sessions.length + 1,
+    date: state.current.startedAt,
+    endedAt: new Date().toISOString(),
+    games: state.current.games,
+    results: totals
+  });
+  state.current = null;
+  entryOpen = false;
+  save();
+  switchTab('stats');
+  toast('記録しました');
+}
+function cancelSession() {
+  if (!state.current) return;
+  if (!confirm('進行中の卓を記録せずに破棄しますか？' +
+    (state.current.games.length ? '\n（記録済みの' + state.current.games.length + 'ゲームも消えます）' : ''))) return;
+  state.current = null;
+  entryOpen = false;
+  save();
+  render();
+}
+function deleteSession(n) {
+  const s = state.sessions.find(x => x.n === n);
+  if (!s) return;
+  if (!confirm('第' + n + '回（' + fmtDate(s.date) + '）の記録を削除しますか？')) return;
+  state.sessions = state.sessions.filter(x => x.n !== n);
+  state.sessions.forEach((x, i) => { x.n = i + 1; });
+  save();
+  render();
+}
+
+/* ---------- stats ---------- */
+let detailOpen = {}; // セッション履歴の内訳表示 {n: bool}
+function toggleDetail(n) { detailOpen[n] = !detailOpen[n]; render(); }
+
+function computeStandings() {
+  const rows = state.players
+    .filter(p => !p.retired || state.sessions.some(s => s.results[p.id]))
+    .map(p => {
+      let total = 0, played = 0, busts = 0, wins = 0;
+      state.sessions.forEach(s => {
+        const e = s.results[p.id];
+        if (!e) return;
+        played += 1;
+        busts += e.busts;
+        total += entryNet(e);
+        const best = Math.max.apply(null, Object.values(s.results).map(entryNet));
+        if (entryNet(e) === best) wins += 1;
+      });
+      return { player: p, total: total, played: played, busts: busts, wins: wins };
+    })
+    .filter(r => r.played > 0 || !r.player.retired);
+  rows.sort((a, b) => b.total - a.total || b.wins - a.wins);
+  return rows;
+}
+
+/* ---------- backup ---------- */
+function openBackup() {
+  document.getElementById('backup-text').value = JSON.stringify(state);
+  document.getElementById('backup-modal').classList.remove('hidden');
+}
+function closeBackup() {
+  document.getElementById('backup-modal').classList.add('hidden');
+}
+function copyBackup() {
+  const ta = document.getElementById('backup-text');
+  ta.value = JSON.stringify(state);
+  const done = () => toast('コピーしました。メモアプリなどに貼り付けて保管してください');
+  const fallback = () => { ta.select(); document.execCommand('copy'); done(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(done, fallback);
+  } else {
+    fallback();
+  }
+}
+function restoreBackup() {
+  const raw = document.getElementById('backup-text').value.trim();
+  try {
+    const s = JSON.parse(raw);
+    if (!s || !Array.isArray(s.players) || !Array.isArray(s.sessions)) throw new Error('bad');
+    if (!confirm('現在のデータを貼り付けた内容で置き換えますか？')) return;
+    let current = s.current || null;
+    if (current && !Array.isArray(current.games)) current = null;
+    state = { players: s.players, sessions: s.sessions, current: current };
+    save();
+    closeBackup();
+    render();
+    toast('復元しました');
+  } catch (e) {
+    toast('読み取れないデータです。バックアップのテキスト全体を貼り付けてください');
+  }
+}
+function resetAll() {
+  if (!confirm('プレイヤー・全セッションの記録をすべて消去します。よろしいですか？')) return;
+  if (!confirm('本当に消去しますか？この操作は取り消せません。')) return;
+  state = defaultState();
+  entryOpen = false;
+  save();
+  render();
+  toast('初期化しました');
+}
+
+/* ---------- render: 今夜の卓 ---------- */
+let flashMode = 'night'; // 'night' | 'total'
+function setFlashMode(m) { flashMode = m; render(); }
+
+function combinedTotals() { // 全セッション + 今夜（累計ランキング用） {pid:{net,busts}}
+  const totals = {};
+  const add = (pid, net, busts) => {
+    const t = totals[pid] || (totals[pid] = { net: 0, busts: 0 });
+    t.net += net;
+    t.busts += busts;
+  };
+  state.sessions.forEach(s => Object.entries(s.results).forEach(([pid, e]) => add(pid, entryNet(e), e.busts)));
+  Object.entries(nightTotals()).forEach(([pid, t]) => add(pid, t.net, t.busts));
+  return totals;
+}
+
+function renderFlash() { // 速報パネル
+  const games = state.current.games;
+  const isNight = flashMode === 'night';
+  const totals = isNight ? nightTotals() : combinedTotals();
+  let html = '<div class="card"><div class="card-head"><h2>速報</h2>' +
+    '<div class="mini-tabs" role="tablist">' +
+      '<button role="tab" aria-selected="' + isNight + '" onclick="setFlashMode(\'night\')">今夜</button>' +
+      '<button role="tab" aria-selected="' + !isNight + '" onclick="setFlashMode(\'total\')">累計</button>' +
+    '</div></div>' +
+    '<p class="sub">' + (isNight
+      ? (games.length === 0 ? '最初の飛びが出たら記録しましょう' : 'ゲーム' + games.length + ' 終了時点の収支')
+      : 'これまで' + state.sessions.length + '回 + 今夜の途中経過を合わせた累計') + '</p>';
+  const rows = Object.entries(totals)
+    .map(([pid, t]) => ({ p: playerById(pid), t: t }))
+    .filter(r => r.p)
+    .sort((a, b) => b.t.net - a.t.net);
+  if (rows.length === 0) {
+    html += '<div class="empty"><span class="suits">♠ ♥ ♦ ♣</span>全員 ' + BUYIN + 'pt でプレイ中</div>';
+  } else {
+    rows.forEach((r, i) => {
+      const meta = isNight
+        ? r.t.games + 'ゲーム・飛び' + r.t.busts + '回'
+        : '通算飛び' + r.t.busts + '回';
+      html += '<div class="flash-row' + (i === 0 ? ' leader' : '') + '">' +
+        '<span class="flash-no">' + (i + 1) + '</span>' +
+        '<div class="flash-main">' +
+          '<div class="fname">' + (i === 0 ? '<span class="crown">♛</span> ' : '') + esc(r.p.name) + '</div>' +
+          '<div class="fmeta">' + meta + '</div>' +
+        '</div>' +
+        '<span class="flash-net ' + valClass(r.t.net) + '">' + fmtSigned(r.t.net) + '<span class="u">pt</span></span>' +
+      '</div>';
+    });
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderEntryForm() {
+  const gameNo = state.current.games.length + 1;
+  let html = '<div class="card"><h2>ゲーム' + gameNo + ' の結果を入力</h2>' +
+    '<p class="sub">飛んだ時点の全員の残り点を入力（飛んだ人は0）</p>';
+  activePlayers().forEach(p => {
+    html += '<div class="entry-row">' +
+      '<span class="ename">' + esc(p.name) + '</span>' +
+      '<button class="fly-btn" onclick="setFly(\'' + p.id + '\')">飛び</button>' +
+      '<input id="g-' + p.id + '" type="number" inputmode="numeric" min="0" placeholder="pt" ' +
+        'aria-label="' + esc(p.name) + 'の残り点" oninput="updateSum()">' +
+    '</div>';
+  });
+  html += '<div class="sum-line"><span>チップ合計（' + BUYIN + 'pt × ' + activePlayers().length + '人）</span>' +
+    '<span id="sum-indicator" class="sum-val">0 / ' + (BUYIN * activePlayers().length) + 'pt</span></div>' +
+    '<div class="entry-actions">' +
+      '<button class="btn btn-ghost" onclick="closeEntry()">やめる</button>' +
+      '<button class="btn btn-gold" onclick="saveGame()">記録して次のゲームへ</button>' +
+    '</div></div>';
+  return html;
+}
+
+function renderGameLog() {
+  const games = state.current.games;
+  if (games.length === 0) return '';
+  const pids = state.players.filter(p => games.some(g => g.results[p.id] !== undefined));
+  let html = '<div class="card"><h2>今夜のゲーム記録</h2>' +
+    '<p class="sub">各ゲームの収支（残り点 − ' + BUYIN + 'pt）</p>' +
+    '<div class="table-scroll"><table class="hist"><thead><tr><th>G</th>';
+  pids.forEach(p => { html += '<th>' + esc(p.name) + '</th>'; });
+  html += '<th></th></tr></thead><tbody>';
+  games.forEach((g, i) => {
+    html += '<tr><td>' + (i + 1) + '</td>';
+    pids.forEach(p => {
+      const pts = g.results[p.id];
+      if (pts === undefined) { html += '<td class="val-zero">—</td>'; return; }
+      const n = pts - BUYIN;
+      html += '<td class="num ' + valClass(n) + '">' + fmtSigned(n) +
+        (pts === 0 ? ' <span class="fly-mark">飛</span>' : '') + '</td>';
+    });
+    html += '<td><button class="del-sess" onclick="deleteGame(' + i + ')">削除</button></td></tr>';
+  });
+  html += '</tbody></table></div></div>';
+  return html;
+}
+
+function renderTable() {
+  const v = document.getElementById('view-table');
+  if (state.current) {
+    let html = '<div class="session-bar">' +
+      '<div><div class="title">第' + (state.sessions.length + 1) + '回</div>' +
+      '<div class="date">' + fmtDate(state.current.startedAt) + ' 開始・各ゲーム全員' + BUYIN + 'pt持ち</div></div>' +
+      '<button class="btn btn-ghost" onclick="cancelSession()">破棄</button>' +
+      '</div>';
+
+    html += renderFlash();
+
+    if (entryOpen) {
+      html += renderEntryForm();
+    } else {
+      html += '<button class="btn btn-gold btn-block" onclick="openEntry()">飛びが出た！ ゲーム' +
+        (state.current.games.length + 1) + ' を記録する</button>';
+    }
+
+    html += renderGameLog();
+
+    html += '<div class="footer-actions">' +
+      '<button class="btn btn-primary btn-block" onclick="endSession()"' +
+      (state.current.games.length === 0 ? ' disabled' : '') + '>今夜の卓を締める</button></div>' +
+      '<p class="note">誰かが飛んだらゲーム終了。全員の残り点を記録して、次のゲームは全員' + BUYIN + 'ptから。' +
+      '収支 ＝ 残り点 − ' + BUYIN + 'pt（飛んだ人は −' + BUYIN + 'pt）。</p>';
+    v.innerHTML = html;
+  } else {
+    let html = '<div class="card"><h2>プレイヤー</h2>' +
+      '<p class="sub">卓を囲むメンバーを登録してください（2人以上）</p>';
+    if (state.players.length === 0) {
+      html += '<div class="empty"><span class="suits">♠ ♥ ♦ ♣</span>まだ誰も着席していません</div>';
+    } else {
+      state.players.forEach(p => {
+        html += '<div class="player-row">' +
+          '<span class="name">' + esc(p.name) + (p.retired ? ' <span class="meta">（休席）</span>' : '') + '</span>' +
+          (p.retired
+            ? '<button class="icon-btn" title="復帰" aria-label="' + esc(p.name) + 'を復帰" onclick="reseatPlayer(\'' + p.id + '\')">↩</button>'
+            : '<button class="icon-btn" title="外す" aria-label="' + esc(p.name) + 'を外す" onclick="removePlayer(\'' + p.id + '\')">×</button>') +
+        '</div>';
+      });
+    }
+    html += '<form class="add-form" onsubmit="addPlayer(event)">' +
+      '<input id="new-player-name" type="text" placeholder="名前を入力" maxlength="12" autocomplete="off">' +
+      '<button type="submit" class="btn btn-primary">追加</button>' +
+      '</form></div>';
+
+    html += '<button class="btn btn-primary btn-block" onclick="startSession()"' +
+      (activePlayers().length < 2 ? ' disabled' : '') + '>第' + (state.sessions.length + 1) + '回を開始する（全員 ' + BUYIN + 'pt）</button>';
+    if (state.sessions.length > 0) {
+      html += '<p class="note">これまでに ' + state.sessions.length + ' 回開催。通算成績タブで順位を確認できます。</p>';
+    }
+    v.innerHTML = html;
+  }
+}
+
+/* ---------- render: 通算成績 ---------- */
+function renderStats() {
+  const v = document.getElementById('view-stats');
+  const rows = computeStandings();
+  let html = '';
+
+  html += '<div class="card"><h2>通算ランキング</h2>' +
+    '<p class="sub">累計収支で判定（' + state.sessions.length + '回開催）</p>';
+  if (rows.length === 0 || state.sessions.length === 0) {
+    html += '<div class="empty"><span class="suits">♛</span>まだ記録がありません。<br>「今夜の卓」から第1回を始めましょう</div>';
+  } else {
+    rows.forEach((r, i) => {
+      html += '<div class="rank-row' + (i === 0 ? ' leader' : '') + '">' +
+        '<span class="rank-no">' + (i + 1) + '</span>' +
+        '<div class="rank-main">' +
+          '<div class="rname">' + (i === 0 ? '<span class="crown">♛</span> ' : '') + esc(r.player.name) +
+            (r.player.retired ? ' <span class="rmeta">（休席）</span>' : '') + '</div>' +
+          '<div class="rmeta">参加' + r.played + '回・1位' + r.wins + '回・飛び' + r.busts + '回</div>' +
+        '</div>' +
+        '<span class="rank-total ' + valClass(r.total) + '">' + fmtSigned(r.total) + '<span class="u">pt</span></span>' +
+      '</div>';
+    });
+  }
+  html += '</div>';
+
+  if (state.sessions.length > 0) {
+    const cols = rows.map(r => r.player);
+    html += '<div class="card"><h2>セッション履歴</h2>' +
+      '<p class="sub">各回の収支合計。「詳細」でゲームごとの内訳を表示</p>' +
+      '<div class="table-scroll"><table class="hist"><thead><tr><th>回</th>';
+    cols.forEach(p => { html += '<th>' + esc(p.name) + '</th>'; });
+    html += '<th></th></tr></thead><tbody>';
+    state.sessions.slice().reverse().forEach(s => {
+      html += '<tr><td>第' + s.n + '回<span class="sess-date">' + fmtDate(s.date) +
+        (Array.isArray(s.games) ? '・' + s.games.length + 'G' : '') + '</span></td>';
+      cols.forEach(p => {
+        const e = s.results[p.id];
+        if (e) {
+          const n = entryNet(e);
+          html += '<td class="num ' + valClass(n) + '">' + fmtSigned(n) +
+            (e.busts > 0 ? ' <span class="fly-mark">飛' + e.busts + '</span>' : '') + '</td>';
+        } else {
+          html += '<td class="val-zero">—</td>';
+        }
+      });
+      const hasGames = Array.isArray(s.games) && s.games.length > 0;
+      html += '<td>' +
+        (hasGames ? '<button class="del-sess" onclick="toggleDetail(' + s.n + ')">' +
+          (detailOpen[s.n] ? '閉じる' : '詳細') + '</button> ' : '') +
+        '<button class="del-sess" onclick="deleteSession(' + s.n + ')">削除</button></td></tr>';
+      if (hasGames && detailOpen[s.n]) {
+        s.games.forEach((g, gi) => {
+          html += '<tr class="detail"><td>G' + (gi + 1) + '</td>';
+          cols.forEach(p => {
+            const pts = g.results[p.id];
+            if (pts === undefined) { html += '<td class="val-zero">—</td>'; return; }
+            const gn = pts - BUYIN;
+            html += '<td class="num ' + valClass(gn) + '">' + fmtSigned(gn) +
+              (pts === 0 ? ' <span class="fly-mark">飛</span>' : '') + '</td>';
+          });
+          html += '<td></td></tr>';
+        });
+      }
+    });
+    html += '</tbody><tfoot><tr><td>累計</td>';
+    cols.forEach(p => {
+      const r = rows.find(x => x.player.id === p.id);
+      html += '<td class="num ' + valClass(r.total) + '">' + fmtSigned(r.total) + '</td>';
+    });
+    html += '<td></td></tr></tfoot></table></div></div>';
+  }
+
+  html += '<div class="card"><h2>データ管理</h2>' +
+    '<p class="sub">記録はこの端末のブラウザに保存され、消さない限りずっと残ります</p>' +
+    '<div class="tools">' +
+      '<button class="btn btn-ghost" onclick="openBackup()">バックアップ／復元</button>' +
+      '<button class="btn btn-ghost" style="color:var(--red);border-color:var(--red)" onclick="resetAll()">すべて消去</button>' +
+    '</div>' +
+    '</div>';
+
+  v.innerHTML = html;
+}
+
+function render() {
+  renderTable();
+  renderStats();
+}
+render();
+</script>
+
+</html>
