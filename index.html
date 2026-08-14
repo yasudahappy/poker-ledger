@@ -413,7 +413,7 @@
   }
   #toast.show { opacity: 1; }
 
-  #backup-modal {
+  .overlay {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, .55);
@@ -423,7 +423,7 @@
     padding: 20px;
     z-index: 20;
   }
-  #backup-modal .panel {
+  .overlay .panel {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 14px;
@@ -432,9 +432,9 @@
     max-width: 480px;
     box-shadow: var(--shadow);
   }
-  #backup-modal h2 { margin: 0 0 4px; font-family: var(--serif); font-size: 18px; font-weight: 600; }
-  #backup-modal .sub { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
-  #backup-modal textarea {
+  .overlay h2 { margin: 0 0 4px; font-family: var(--serif); font-size: 18px; font-weight: 600; }
+  .overlay .sub { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+  .overlay textarea {
     width: 100%;
     height: 170px;
     font-family: var(--mono);
@@ -447,7 +447,33 @@
     padding: 10px;
     resize: vertical;
   }
-  #backup-modal .entry-actions { margin-top: 10px; }
+  .overlay input[type="password"] {
+    width: 100%;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: var(--mono);
+  }
+  .overlay .entry-actions { margin-top: 10px; }
+
+  .sync {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
+    margin-top: 4px;
+    cursor: pointer;
+    user-select: none;
+    background: none;
+    border: 0;
+    padding: 0;
+    font-family: inherit;
+    display: block;
+  }
+  .sync.ok { color: var(--pos); }
+  .sync.err { color: var(--red); }
 
   tr.detail td { background: var(--surface2); font-size: 12px; }
 </style>
@@ -458,7 +484,10 @@
       <div class="eyebrow">All-in on Life</div>
       <h1>人生フルベット</h1>
     </div>
-    <div class="brand suits">♠ ♥ ♦ ♣</div>
+    <div>
+      <div class="brand suits">♠ ♥ ♦ ♣</div>
+      <button id="sync-status" class="sync" onclick="syncClick()"></button>
+    </div>
   </header>
 
   <nav class="tabs" role="tablist">
@@ -469,7 +498,20 @@
   <section id="view-table" role="tabpanel"></section>
   <section id="view-stats" role="tabpanel" class="hidden"></section>
 
-  <div id="backup-modal" class="hidden" role="dialog" aria-label="バックアップと復元">
+  <div id="master-modal" class="overlay hidden" role="dialog" aria-label="マスター設定">
+    <div class="panel">
+      <h2>マスター設定</h2>
+      <p class="sub">スコアを入力できるのは卓のマスターだけです。GitHubで発行したアクセストークン（poker-ledger リポジトリの Contents 読み書き権限のみ）を貼り付けてください。トークンはこの端末の中にだけ保存され、公開データには含まれません。</p>
+      <input id="master-token" type="password" placeholder="github_pat_..." autocomplete="off" aria-label="アクセストークン">
+      <div class="entry-actions">
+        <button class="btn btn-ghost" onclick="closeMaster()">閉じる</button>
+        <button id="master-clear" class="btn btn-ghost hidden" onclick="clearMaster()">マスター解除</button>
+        <button class="btn btn-primary" onclick="saveMaster()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="backup-modal" class="overlay hidden" role="dialog" aria-label="バックアップと復元">
     <div class="panel">
       <h2>バックアップ／復元</h2>
       <p class="sub">下のテキストをコピーして、メモアプリやLINE Keepなどに保管してください。復元するときは、保管したテキストをここに貼り付けて「復元」を押します。</p>
@@ -530,7 +572,215 @@ function loadState() {
 }
 let state = loadState();
 let entryOpen = false; // ゲーム入力フォームの開閉（保存しない）
-function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+
+/* ---------- 公開同期（GitHub） ----------
+ マスター: トークンを設定した端末。ローカルが正で、変更のたびに data.json へ自動プッシュ。
+ 閲覧者: トークン無し。data.json を読むだけ（この端末の保存領域には一切書かない）。
+*/
+const REMOTE = { owner: 'yasudahappy', repo: 'poker-ledger', path: 'data.json', branch: 'data' };
+const TOKEN_KEY = 'poker-ledger-token';
+const DIRTY_KEY = 'poker-ledger-dirty';
+function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
+function isMaster() { return !!getToken(); }
+let remoteSha = null;
+let syncState = 'init'; // init | synced | syncing | error | viewer | viewer-error
+let lastFetchedAt = null;
+let pushTimer = null;
+
+function apiUrl() {
+  return 'https://api.github.com/repos/' + REMOTE.owner + '/' + REMOTE.repo + '/contents/' + REMOTE.path;
+}
+function rawUrl() {
+  return 'https://raw.githubusercontent.com/' + REMOTE.owner + '/' + REMOTE.repo + '/' + REMOTE.branch + '/' + REMOTE.path;
+}
+function ghHeaders(token) {
+  const h = { 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  return h;
+}
+function b64EncodeUtf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 8192) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+  }
+  return btoa(bin);
+}
+function b64DecodeUtf8(b64) {
+  const bin = atob(b64.replace(/\s/g, ''));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+function normalizeRemote(s) { // 公開データの検証と旧形式移行
+  if (!s || !Array.isArray(s.players) || !Array.isArray(s.sessions)) return null;
+  let current = s.current || null;
+  if (current && !Array.isArray(current.games)) current = null;
+  if (current) migrateGames(current.games);
+  s.sessions.forEach(x => migrateGames(x.games));
+  return { players: s.players, sessions: s.sessions, current: current };
+}
+function hasLocalRecords() {
+  return state.players.length > 0 || state.sessions.length > 0 ||
+    (state.current && state.current.games.length > 0);
+}
+
+async function fetchRemote() { // {state, sha} | null(未作成) | undefined(取得失敗)
+  try {
+    const res = await fetch(apiUrl() + '?ref=' + REMOTE.branch + '&t=' + Date.now(), { headers: ghHeaders(getToken()) });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('api ' + res.status);
+    const j = await res.json();
+    const s = normalizeRemote(JSON.parse(b64DecodeUtf8(j.content)));
+    return s ? { state: s, sha: j.sha } : undefined;
+  } catch (e) {
+    try { // レート制限などはCDN経由で読むだけ（shaなし）
+      const res = await fetch(rawUrl() + '?t=' + Date.now());
+      if (res.status === 404) return null;
+      if (!res.ok) return undefined;
+      const s = normalizeRemote(await res.json());
+      return s ? { state: s, sha: null } : undefined;
+    } catch (e2) { return undefined; }
+  }
+}
+
+async function pushRemote() {
+  const token = getToken();
+  if (!token) return;
+  setSync('syncing');
+  try {
+    const body = { message: 'スコア更新', content: b64EncodeUtf8(JSON.stringify(state)), branch: REMOTE.branch };
+    if (remoteSha) body.sha = remoteSha;
+    let res = await fetch(apiUrl(), { method: 'PUT', headers: ghHeaders(token), body: JSON.stringify(body) });
+    if (res.status === 409 || res.status === 422) { // shaずれ → 取り直して1回だけ再試行
+      const meta = await fetch(apiUrl() + '?ref=' + REMOTE.branch + '&t=' + Date.now(), { headers: ghHeaders(token) });
+      if (meta.ok) { body.sha = (await meta.json()).sha; }
+      else if (meta.status === 404) { delete body.sha; }
+      res = await fetch(apiUrl(), { method: 'PUT', headers: ghHeaders(token), body: JSON.stringify(body) });
+    }
+    if (!res.ok) throw new Error('push ' + res.status);
+    const j = await res.json();
+    remoteSha = j.content.sha;
+    try { localStorage.removeItem(DIRTY_KEY); } catch (e) {}
+    setSync('synced');
+  } catch (e) {
+    try { localStorage.setItem(DIRTY_KEY, '1'); } catch (e2) {}
+    setSync('error');
+  }
+}
+function schedulePush() {
+  if (!isMaster()) return;
+  try { localStorage.setItem(DIRTY_KEY, '1'); } catch (e) {}
+  setSync('syncing');
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushRemote, 1200);
+}
+
+async function pollRemote(manual) {
+  const r = await fetchRemote();
+  if (r && r.state) {
+    state = r.state; // 閲覧モードはメモリ上だけ。端末には保存しない
+    if (r.sha) remoteSha = r.sha;
+    lastFetchedAt = new Date();
+    setSync('viewer');
+    render();
+    if (manual) toast('最新のスコアに更新しました');
+  } else if (r === null) {
+    lastFetchedAt = new Date();
+    setSync('viewer');
+    if (manual) toast('公開データはまだありません');
+  } else {
+    setSync('viewer-error');
+    if (manual) toast('読み込めませんでした。少し待ってからもう一度');
+  }
+}
+
+async function initRemote() {
+  if (isMaster()) {
+    const dirty = (() => { try { return localStorage.getItem(DIRTY_KEY) === '1'; } catch (e) { return false; } })();
+    const r = await fetchRemote();
+    if (r && r.sha) remoteSha = r.sha;
+    if (hasLocalRecords() || dirty) {
+      // ローカルの記録が正。公開側を合わせる（既存スコアは絶対に消さない）
+      pushRemote();
+    } else if (r && r.state) {
+      state = r.state;
+      save();
+      setSync('synced');
+      render();
+    } else {
+      setSync(r === undefined ? 'error' : 'synced');
+    }
+  } else {
+    setSync('viewer');
+    await pollRemote(false);
+    setInterval(() => pollRemote(false), 75000);
+  }
+}
+
+function setSync(s) {
+  syncState = s;
+  updateSyncUI();
+}
+function updateSyncUI() {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+  const time = lastFetchedAt
+    ? lastFetchedAt.getHours() + ':' + String(lastFetchedAt.getMinutes()).padStart(2, '0')
+    : '';
+  const map = {
+    'init': ['', ''],
+    'synced': ['✓ 公開同期中', 'ok'],
+    'syncing': ['⟳ 同期中…', ''],
+    'error': ['⚠ 未同期（タップで再送）', 'err'],
+    'viewer': ['👁 閲覧モード' + (time ? '・' + time + '更新' : '') + '（タップで更新）', ''],
+    'viewer-error': ['⚠ 読込エラー（タップで再試行）', 'err']
+  };
+  const m = map[syncState] || ['', ''];
+  el.textContent = m[0];
+  el.className = 'sync' + (m[1] ? ' ' + m[1] : '');
+}
+function syncClick() {
+  if (isMaster()) pushRemote();
+  else pollRemote(true);
+}
+
+/* ---------- マスター設定 ---------- */
+function openMaster() {
+  document.getElementById('master-token').value = '';
+  document.getElementById('master-clear').classList.toggle('hidden', !isMaster());
+  document.getElementById('master-modal').classList.remove('hidden');
+}
+function closeMaster() {
+  document.getElementById('master-modal').classList.add('hidden');
+}
+async function saveMaster() {
+  const t = document.getElementById('master-token').value.trim();
+  if (!t) { toast('トークンを貼り付けてください'); return; }
+  try { localStorage.setItem(TOKEN_KEY, t); } catch (e) { toast('この端末には保存できません'); return; }
+  closeMaster();
+  render();
+  try { // トークンの簡易検証
+    const res = await fetch('https://api.github.com/repos/' + REMOTE.owner + '/' + REMOTE.repo, { headers: ghHeaders(t) });
+    toast(res.ok ? 'マスターとして設定しました' : 'トークンでアクセスできません。権限（Contents読み書き）と期限を確認してください');
+  } catch (e) {
+    toast('マスターとして設定しました（接続は同期時に確認されます）');
+  }
+  initRemote();
+}
+function clearMaster() {
+  if (!confirm('マスターを解除しますか？（この端末は閲覧専用になります。記録済みデータは消えません）')) return;
+  try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+  closeMaster();
+  render();
+  initRemote();
+}
+
+function save() {
+  if (!isMaster()) return; // 閲覧モードは端末に書き込まない
+  localStorage.setItem(KEY, JSON.stringify(state));
+  schedulePush();
+}
 
 /* ---------- helpers ---------- */
 function esc(s) {
@@ -887,7 +1137,7 @@ function renderGameLog() {
       html += '<td class="num ' + valClass(pts) + '">' + fmtSigned(pts) +
         (pts <= -BUYIN ? ' <span class="fly-mark">飛</span>' : '') + '</td>';
     });
-    html += '<td><button class="del-sess" onclick="deleteGame(' + i + ')">削除</button></td></tr>';
+    html += '<td>' + (isMaster() ? '<button class="del-sess" onclick="deleteGame(' + i + ')">削除</button>' : '') + '</td></tr>';
   });
   html += '</tbody></table></div></div>';
   return html;
@@ -895,31 +1145,38 @@ function renderGameLog() {
 
 function renderTable() {
   const v = document.getElementById('view-table');
+  const master = isMaster();
   if (state.current) {
     let html = '<div class="session-bar">' +
       '<div><div class="title">第' + (state.sessions.length + 1) + '回</div>' +
       '<div class="date">' + fmtDate(state.current.startedAt) + ' 開始・各ゲーム全員' + BUYIN + 'pt持ち</div></div>' +
-      '<button class="btn btn-ghost" onclick="cancelSession()">破棄</button>' +
+      (master ? '<button class="btn btn-ghost" onclick="cancelSession()">破棄</button>' : '') +
       '</div>';
 
     html += renderFlash();
 
-    if (entryOpen) {
-      html += renderEntryForm();
-    } else {
-      html += '<button class="btn btn-gold btn-block" onclick="openEntry()">飛びが出た！ ゲーム' +
-        (state.current.games.length + 1) + ' を記録する</button>';
+    if (master) {
+      if (entryOpen) {
+        html += renderEntryForm();
+      } else {
+        html += '<button class="btn btn-gold btn-block" onclick="openEntry()">飛びが出た！ ゲーム' +
+          (state.current.games.length + 1) + ' を記録する</button>';
+      }
     }
 
     html += renderGameLog();
 
-    html += '<div class="footer-actions">' +
-      '<button class="btn btn-primary btn-block" onclick="endSession()"' +
-      (state.current.games.length === 0 ? ' disabled' : '') + '>今夜の卓を締める</button></div>' +
-      '<p class="note">誰かが飛んだらゲーム終了。各自の収支（±）を記録して、次のゲームは全員' + BUYIN + 'ptから。' +
-      '飛んだ人は −' + BUYIN + 'pt。</p>';
+    if (master) {
+      html += '<div class="footer-actions">' +
+        '<button class="btn btn-primary btn-block" onclick="endSession()"' +
+        (state.current.games.length === 0 ? ' disabled' : '') + '>今夜の卓を締める</button></div>' +
+        '<p class="note">誰かが飛んだらゲーム終了。各自の収支（±）を記録して、次のゲームは全員' + BUYIN + 'ptから。' +
+        '飛んだ人は −' + BUYIN + 'pt。</p>';
+    } else {
+      html += '<p class="note">スコアの入力はマスターだけができます。この画面は自動で最新に更新されます。</p>';
+    }
     v.innerHTML = html;
-  } else {
+  } else if (master) {
     let html = '<div class="card"><h2>プレイヤー</h2>' +
       '<p class="sub">卓を囲むメンバーを登録してください（2人以上）</p>';
     if (state.players.length === 0) {
@@ -943,6 +1200,13 @@ function renderTable() {
       (activePlayers().length < 2 ? ' disabled' : '') + '>第' + (state.sessions.length + 1) + '回を開始する（全員 ' + BUYIN + 'pt）</button>';
     if (state.sessions.length > 0) {
       html += '<p class="note">これまでに ' + state.sessions.length + ' 回開催。通算成績タブで順位を確認できます。</p>';
+    }
+    v.innerHTML = html;
+  } else {
+    let html = '<div class="card"><h2>今夜の卓</h2>' +
+      '<div class="empty"><span class="suits">♠ ♥ ♦ ♣</span>卓はまだ開いていません。<br>開くとここに速報が流れます</div></div>';
+    if (state.sessions.length > 0) {
+      html += '<p class="note">これまでの成績は「通算成績」タブへ。</p>';
     }
     v.innerHTML = html;
   }
@@ -997,7 +1261,7 @@ function renderStats() {
       html += '<td>' +
         (hasGames ? '<button class="del-sess" onclick="toggleDetail(' + s.n + ')">' +
           (detailOpen[s.n] ? '閉じる' : '詳細') + '</button> ' : '') +
-        '<button class="del-sess" onclick="deleteSession(' + s.n + ')">削除</button></td></tr>';
+        (isMaster() ? '<button class="del-sess" onclick="deleteSession(' + s.n + ')">削除</button>' : '') + '</td></tr>';
       if (hasGames && detailOpen[s.n]) {
         s.games.forEach((g, gi) => {
           html += '<tr class="detail"><td>G' + (gi + 1) + '</td>';
@@ -1019,13 +1283,23 @@ function renderStats() {
     html += '<td></td></tr></tfoot></table></div></div>';
   }
 
-  html += '<div class="card"><h2>データ管理</h2>' +
-    '<p class="sub">記録はこの端末のブラウザに保存され、消さない限りずっと残ります</p>' +
-    '<div class="tools">' +
-      '<button class="btn btn-ghost" onclick="openBackup()">バックアップ／復元</button>' +
-      '<button class="btn btn-ghost" style="color:var(--red);border-color:var(--red)" onclick="resetAll()">すべて消去</button>' +
-    '</div>' +
-    '</div>';
+  if (isMaster()) {
+    html += '<div class="card"><h2>データ管理</h2>' +
+      '<p class="sub">記録はこの端末に保存され、変更のたびに公開データへ自動同期されます</p>' +
+      '<div class="tools">' +
+        '<button class="btn btn-ghost" onclick="openBackup()">バックアップ／復元</button>' +
+        '<button class="btn btn-ghost" onclick="openMaster()">マスター設定</button>' +
+        '<button class="btn btn-ghost" style="color:var(--red);border-color:var(--red)" onclick="resetAll()">すべて消去</button>' +
+      '</div>' +
+      '</div>';
+  } else {
+    html += '<div class="card"><h2>この卓のマスターですか？</h2>' +
+      '<p class="sub">マスター（記録係）はトークンを設定するとスコアを入力できます。閲覧するだけなら設定は不要です</p>' +
+      '<div class="tools">' +
+        '<button class="btn btn-ghost" onclick="openMaster()">マスター設定</button>' +
+      '</div>' +
+      '</div>';
+  }
 
   v.innerHTML = html;
 }
@@ -1033,8 +1307,10 @@ function renderStats() {
 function render() {
   renderTable();
   renderStats();
+  updateSyncUI();
 }
 render();
+initRemote();
 </script>
 
 </html>
