@@ -288,6 +288,8 @@
     font-weight: 700;
     white-space: nowrap;
   }
+  .fly-btn.bust-cnt { border-color: var(--line); color: var(--muted); }
+  .fly-btn.bust-cnt.on { border-color: var(--red); color: var(--red); background: var(--red-soft); }
   .sum-line {
     display: flex;
     justify-content: space-between;
@@ -768,6 +770,22 @@ async function saveMaster() {
   }
   initRemote();
 }
+async function pullRemote() { // 公開データでこの端末を上書き（マスター引き継ぎ・データ取り込み用）
+  if (!isMaster()) return;
+  const r = await fetchRemote();
+  if (!r || !r.state) { toast('公開データを取得できませんでした'); return; }
+  const cur = state.sessions.length, rem = r.state.sessions.length;
+  if (!confirm('公開データ（' + rem + '回分' + (r.state.current ? '＋進行中の卓' : '') + '）で、この端末の記録（' + cur + '回分）を置き換えますか？')) return;
+  state = r.state;
+  if (r.sha) remoteSha = r.sha;
+  localStorage.setItem(KEY, JSON.stringify(state));
+  try { localStorage.removeItem(DIRTY_KEY); } catch (e) {}
+  setSync('synced');
+  statsSeason = undefined;
+  render();
+  toast('公開データを取り込みました');
+}
+
 function clearMaster() {
   if (!confirm('マスターを解除しますか？（この端末は閲覧専用になります。記録済みデータは消えません）')) return;
   try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
@@ -795,6 +813,36 @@ function playerById(id) { return state.players.find(p => p.id === id); }
 function fmtDate(iso) {
   const d = new Date(iso);
   return (d.getMonth() + 1) + '/' + d.getDate();
+}
+
+/* ---------- シーズン ----------
+ 毎月1シーズン。2026年8月以前=プレシーズン(0)、2026年9月=シーズン1、10月=シーズン2…
+ 深夜スタートの卓は前の晩の扱い（開始時刻JSTから12時間引いた日の月で判定）。
+*/
+function seasonOf(iso) {
+  const d = new Date(new Date(iso).getTime() - 3 * 3600 * 1000); // JST-12h = UTC-3h
+  const idx = (d.getUTCFullYear() - 2026) * 12 + (d.getUTCMonth() + 1 - 9) + 1;
+  return idx < 1 ? 0 : idx;
+}
+function seasonLabel(n) { return n === 0 ? 'プレシーズン' : 'シーズン' + n; }
+function seasonShort(n) { return n === 0 ? 'プレ' : 'S' + n; }
+function currentSeason() { return seasonOf(new Date().toISOString()); }
+function seasonIndexMap() { // {セッションn: {se, idx(シーズン内の第何戦か)}}
+  const map = {}, cnt = {};
+  state.sessions.forEach(s => {
+    const se = seasonOf(s.date);
+    cnt[se] = (cnt[se] || 0) + 1;
+    map[s.n] = { se: se, idx: cnt[se] };
+  });
+  return map;
+}
+function sessionTag(n) {
+  const m = seasonIndexMap()[n];
+  return m ? seasonShort(m.se) + ' 第' + m.idx + '戦' : '第' + n + '回';
+}
+function gameBusts(g, pid, pts) { // ゲーム内の飛び回数（v3は記録値、旧形式は推定）
+  if (g && g.busts && typeof g.busts[pid] === 'number') return g.busts[pid];
+  return (typeof pts === 'number' && pts <= -BUYIN) ? 1 : 0;
 }
 let toastTimer = null;
 function toast(msg) {
@@ -868,7 +916,7 @@ function nightTotals() { // 今夜の累計（速報用） {pid: {net, busts, ga
     Object.entries(g.results).forEach(([pid, pts]) => {
       const t = totals[pid] || (totals[pid] = { net: 0, busts: 0, games: 0 });
       t.net += pts;
-      if (pts <= -BUYIN) t.busts += 1;
+      t.busts += gameBusts(g, pid, pts);
       t.games += 1;
     });
   });
@@ -884,6 +932,22 @@ function flipSign(pid) { // マイナスが打ちにくいキーボード向け�
   const v = parseInt(el.value, 10);
   if (!isNaN(v)) { el.value = -v; updateSum(); }
 }
+function cycleBust(pid) { // 飛び回数をタップで 0→1→2→3→4→0 と切替
+  const el = document.getElementById('b-' + pid);
+  if (!el) return;
+  const n = (parseInt(el.dataset.count, 10) + 1) % 5;
+  el.dataset.count = n;
+  el.textContent = '飛' + n;
+  el.className = 'fly-btn bust-cnt' + (n > 0 ? ' on' : '');
+  updateSum();
+}
+function entryBusts() { // フォーム上の飛び回数 {pid: n}
+  const busts = {};
+  Array.from(document.querySelectorAll('button[id^="b-"]')).forEach(b => {
+    busts[b.id.slice(2)] = parseInt(b.dataset.count, 10) || 0;
+  });
+  return busts;
+}
 function updateSum() {
   const inputs = Array.from(document.querySelectorAll('input[id^="g-"]'));
   let sum = 0, filled = 0;
@@ -891,10 +955,12 @@ function updateSum() {
     const v = parseInt(i.value, 10);
     if (!isNaN(v)) { sum += v; filled += 1; }
   });
+  const totalBusts = Object.values(entryBusts()).reduce((a, b) => a + b, 0);
+  const expected = BUYIN * totalBusts;
   const el = document.getElementById('sum-indicator');
   if (!el) return;
-  el.textContent = fmtSigned(sum) + 'pt';
-  el.className = 'sum-val ' + (filled === inputs.length && sum === 0 ? 'sum-ok' : 'sum-ng');
+  el.textContent = fmtSigned(sum) + ' / ' + fmtSigned(expected) + 'pt';
+  el.className = 'sum-val ' + (filled === inputs.length && sum === expected ? 'sum-ok' : 'sum-ng');
 }
 
 function saveGame() {
@@ -905,20 +971,22 @@ function saveGame() {
     const pid = inp.id.slice(2);
     const v = parseInt(inp.value, 10);
     if (inp.value.trim() === '' || isNaN(v)) {
-      toast('全員分の収支を入力してください（飛んだ人は −' + BUYIN + '）');
+      toast('全員分の収支を入力してください（飛んだ人はマイナス）');
       inp.focus();
       return;
     }
     results[pid] = v;
   }
+  const busts = entryBusts();
   const sum = Object.values(results).reduce((a, b) => a + b, 0);
-  const flew = Object.values(results).filter(v => v <= -BUYIN).length;
+  const totalBusts = Object.values(busts).reduce((a, b) => a + b, 0);
+  const expected = BUYIN * totalBusts;
   let warns = [];
-  if (flew === 0) warns.push('−' + BUYIN + 'pt（飛び）の人がいません。');
-  if (sum !== 0) warns.push('収支の合計が ' + fmtSigned(sum) + 'pt です（全員でプラマイ0のはず）。');
+  if (totalBusts === 0) warns.push('飛びが1回も記録されていません（飛んだ人の「飛」をタップして回数を合わせてください）。');
+  if (sum !== expected) warns.push('収支の合計が ' + fmtSigned(sum) + 'pt です（飛び' + totalBusts + '回なら ' + fmtSigned(expected) + 'pt のはず）。');
   if (warns.length && !confirm(warns.join('\n') + '\nこのまま記録しますか？')) return;
 
-  state.current.games.push({ results: results, at: new Date().toISOString(), v: 2 });
+  state.current.games.push({ results: results, busts: busts, at: new Date().toISOString(), v: 3 });
   entryOpen = false;
   save();
   render();
@@ -940,7 +1008,9 @@ function endSession() {
     const p = playerById(pid);
     return (p ? p.name : '?') + '： 収支 ' + fmtSigned(t.net) + 'pt / 飛び' + t.busts + '回';
   });
-  if (!confirm('第' + (state.sessions.length + 1) + '回（全' + state.current.games.length + 'ゲーム）を締めますか？\n\n' + lines.join('\n'))) return;
+  const seEnd = seasonOf(state.current.startedAt);
+  const battleEnd = state.sessions.filter(s => seasonOf(s.date) === seEnd).length + 1;
+  if (!confirm(seasonLabel(seEnd) + ' 第' + battleEnd + '戦（全' + state.current.games.length + 'ゲーム）を締めますか？\n\n' + lines.join('\n'))) return;
   state.sessions.push({
     n: state.sessions.length + 1,
     date: state.current.startedAt,
@@ -977,12 +1047,12 @@ function deleteSession(n) {
 let detailOpen = {}; // セッション履歴の内訳表示 {n: bool}
 function toggleDetail(n) { detailOpen[n] = !detailOpen[n]; render(); }
 
-function computeStandings() {
+function computeStandings(sessions, includeIdle) {
+  const list = sessions || state.sessions;
   const rows = state.players
-    .filter(p => !p.retired || state.sessions.some(s => s.results[p.id]))
     .map(p => {
       let total = 0, played = 0, busts = 0, wins = 0;
-      state.sessions.forEach(s => {
+      list.forEach(s => {
         const e = s.results[p.id];
         if (!e) return;
         played += 1;
@@ -993,7 +1063,7 @@ function computeStandings() {
       });
       return { player: p, total: total, played: played, busts: busts, wins: wins };
     })
-    .filter(r => r.played > 0 || !r.player.retired);
+    .filter(r => r.played > 0 || (includeIdle && !r.player.retired));
   rows.sort((a, b) => b.total - a.total || b.wins - a.wins);
   return rows;
 }
@@ -1047,33 +1117,41 @@ function resetAll() {
 }
 
 /* ---------- render: 今夜の卓 ---------- */
-let flashMode = 'night'; // 'night' | 'total'
+let flashMode = 'night'; // 'night' | 'season' | 'total'
 function setFlashMode(m) { flashMode = m; render(); }
 
-function combinedTotals() { // 全セッション + 今夜（累計ランキング用） {pid:{net,busts}}
+function combinedTotals(seasonFilter) { // 締め済みセッション + 今夜 {pid:{net,busts}}
   const totals = {};
   const add = (pid, net, busts) => {
     const t = totals[pid] || (totals[pid] = { net: 0, busts: 0 });
     t.net += net;
     t.busts += busts;
   };
-  state.sessions.forEach(s => Object.entries(s.results).forEach(([pid, e]) => add(pid, entryNet(e), e.busts)));
+  state.sessions
+    .filter(s => seasonFilter === undefined || seasonOf(s.date) === seasonFilter)
+    .forEach(s => Object.entries(s.results).forEach(([pid, e]) => add(pid, entryNet(e), e.busts)));
   Object.entries(nightTotals()).forEach(([pid, t]) => add(pid, t.net, t.busts));
   return totals;
 }
 
 function renderFlash() { // 速報パネル
   const games = state.current.games;
-  const isNight = flashMode === 'night';
-  const totals = isNight ? nightTotals() : combinedTotals();
+  const se = seasonOf(state.current.startedAt);
+  const totals = flashMode === 'night' ? nightTotals()
+    : flashMode === 'season' ? combinedTotals(se)
+    : combinedTotals();
+  const subText = flashMode === 'night'
+    ? (games.length === 0 ? '最初の飛びが出たら記録しましょう' : 'ゲーム' + games.length + ' 終了時点の収支')
+    : flashMode === 'season'
+      ? seasonLabel(se) + 'の累計（今夜の途中経過を含む）'
+      : '全シーズン通算（今夜の途中経過を含む）';
   let html = '<div class="card"><div class="card-head"><h2>速報</h2>' +
     '<div class="mini-tabs" role="tablist">' +
-      '<button role="tab" aria-selected="' + isNight + '" onclick="setFlashMode(\'night\')">今夜</button>' +
-      '<button role="tab" aria-selected="' + !isNight + '" onclick="setFlashMode(\'total\')">累計</button>' +
+      '<button role="tab" aria-selected="' + (flashMode === 'night') + '" onclick="setFlashMode(\'night\')">今夜</button>' +
+      '<button role="tab" aria-selected="' + (flashMode === 'season') + '" onclick="setFlashMode(\'season\')">' + seasonShort(se) + '</button>' +
+      '<button role="tab" aria-selected="' + (flashMode === 'total') + '" onclick="setFlashMode(\'total\')">通算</button>' +
     '</div></div>' +
-    '<p class="sub">' + (isNight
-      ? (games.length === 0 ? '最初の飛びが出たら記録しましょう' : 'ゲーム' + games.length + ' 終了時点の収支')
-      : 'これまで' + state.sessions.length + '回 + 今夜の途中経過を合わせた累計') + '</p>';
+    '<p class="sub">' + subText + '</p>';
   const rows = Object.entries(totals)
     .map(([pid, t]) => ({ p: playerById(pid), t: t }))
     .filter(r => r.p)
@@ -1082,9 +1160,9 @@ function renderFlash() { // 速報パネル
     html += '<div class="empty"><span class="suits">♠ ♥ ♦ ♣</span>全員 ' + BUYIN + 'pt でプレイ中</div>';
   } else {
     rows.forEach((r, i) => {
-      const meta = isNight
+      const meta = flashMode === 'night'
         ? r.t.games + 'ゲーム・飛び' + r.t.busts + '回'
-        : '通算飛び' + r.t.busts + '回';
+        : '飛び' + r.t.busts + '回';
       html += '<div class="flash-row' + (i === 0 ? ' leader' : '') + '">' +
         '<span class="flash-no">' + (i + 1) + '</span>' +
         '<div class="flash-main">' +
@@ -1102,17 +1180,19 @@ function renderFlash() { // 速報パネル
 function renderEntryForm() {
   const gameNo = state.current.games.length + 1;
   let html = '<div class="card"><h2>ゲーム' + gameNo + ' の結果を入力</h2>' +
-    '<p class="sub">各自の収支（±）を入力。飛んだ人は −' + BUYIN + '</p>';
+    '<p class="sub">各自の収支（±）と飛び回数を入力（「飛」をタップで回数切替）</p>';
   activePlayers().forEach(p => {
     html += '<div class="entry-row">' +
       '<span class="ename">' + esc(p.name) + '</span>' +
+      '<button id="b-' + p.id + '" class="fly-btn bust-cnt" data-count="0" title="飛び回数" ' +
+        'aria-label="' + esc(p.name) + 'の飛び回数" onclick="cycleBust(\'' + p.id + '\')">飛0</button>' +
       '<button class="fly-btn" title="符号を反転" aria-label="' + esc(p.name) + 'の符号を反転" onclick="flipSign(\'' + p.id + '\')">±</button>' +
       '<input id="g-' + p.id + '" type="number" inputmode="numeric" placeholder="±pt" ' +
         'aria-label="' + esc(p.name) + 'の収支" oninput="updateSum()">' +
     '</div>';
   });
-  html += '<div class="sum-line"><span>収支合計（全員でプラマイ0のはず）</span>' +
-    '<span id="sum-indicator" class="sum-val">0pt</span></div>' +
+  html += '<div class="sum-line"><span>収支合計（20 × 飛び回数と一致するはず）</span>' +
+    '<span id="sum-indicator" class="sum-val">0 / 0pt</span></div>' +
     '<div class="entry-actions">' +
       '<button class="btn btn-ghost" onclick="closeEntry()">やめる</button>' +
       '<button class="btn btn-gold" onclick="saveGame()">記録して次のゲームへ</button>' +
@@ -1134,8 +1214,9 @@ function renderGameLog() {
     pids.forEach(p => {
       const pts = g.results[p.id];
       if (pts === undefined) { html += '<td class="val-zero">—</td>'; return; }
+      const fb = gameBusts(g, p.id, pts);
       html += '<td class="num ' + valClass(pts) + '">' + fmtSigned(pts) +
-        (pts <= -BUYIN ? ' <span class="fly-mark">飛</span>' : '') + '</td>';
+        (fb > 0 ? ' <span class="fly-mark">飛' + (fb > 1 ? fb : '') + '</span>' : '') + '</td>';
     });
     html += '<td>' + (isMaster() ? '<button class="del-sess" onclick="deleteGame(' + i + ')">削除</button>' : '') + '</td></tr>';
   });
@@ -1147,8 +1228,10 @@ function renderTable() {
   const v = document.getElementById('view-table');
   const master = isMaster();
   if (state.current) {
+    const se = seasonOf(state.current.startedAt);
+    const battleNo = state.sessions.filter(s => seasonOf(s.date) === se).length + 1;
     let html = '<div class="session-bar">' +
-      '<div><div class="title">第' + (state.sessions.length + 1) + '回</div>' +
+      '<div><div class="title">' + seasonLabel(se) + ' 第' + battleNo + '戦</div>' +
       '<div class="date">' + fmtDate(state.current.startedAt) + ' 開始・各ゲーム全員' + BUYIN + 'pt持ち</div></div>' +
       (master ? '<button class="btn btn-ghost" onclick="cancelSession()">破棄</button>' : '') +
       '</div>';
@@ -1170,8 +1253,7 @@ function renderTable() {
       html += '<div class="footer-actions">' +
         '<button class="btn btn-primary btn-block" onclick="endSession()"' +
         (state.current.games.length === 0 ? ' disabled' : '') + '>今夜の卓を締める</button></div>' +
-        '<p class="note">誰かが飛んだらゲーム終了。各自の収支（±）を記録して、次のゲームは全員' + BUYIN + 'ptから。' +
-        '飛んだ人は −' + BUYIN + 'pt。</p>';
+        '<p class="note">ゲームごとに各自の収支（±）と飛び回数を記録。収支の合計は「' + BUYIN + ' × 飛び回数」と一致するはず。</p>';
     } else {
       html += '<p class="note">スコアの入力はマスターだけができます。この画面は自動で最新に更新されます。</p>';
     }
@@ -1196,8 +1278,10 @@ function renderTable() {
       '<button type="submit" class="btn btn-primary">追加</button>' +
       '</form></div>';
 
+    const seNow = currentSeason();
+    const nextBattle = state.sessions.filter(s => seasonOf(s.date) === seNow).length + 1;
     html += '<button class="btn btn-primary btn-block" onclick="startSession()"' +
-      (activePlayers().length < 2 ? ' disabled' : '') + '>第' + (state.sessions.length + 1) + '回を開始する（全員 ' + BUYIN + 'pt）</button>';
+      (activePlayers().length < 2 ? ' disabled' : '') + '>' + seasonLabel(seNow) + ' 第' + nextBattle + '戦を開始する（全員 ' + BUYIN + 'pt）</button>';
     if (state.sessions.length > 0) {
       html += '<p class="note">これまでに ' + state.sessions.length + ' 回開催。通算成績タブで順位を確認できます。</p>';
     }
@@ -1213,15 +1297,33 @@ function renderTable() {
 }
 
 /* ---------- render: 通算成績 ---------- */
+let statsSeason; // 選択中のシーズン番号 | 'all'（未定義なら初期化）
+function setStatsSeason(s) { statsSeason = s; render(); }
+
 function renderStats() {
   const v = document.getElementById('view-stats');
-  const rows = computeStandings();
-  let html = '';
 
-  html += '<div class="card"><h2>通算ランキング</h2>' +
-    '<p class="sub">累計収支で判定（' + state.sessions.length + '回開催）</p>';
-  if (rows.length === 0 || state.sessions.length === 0) {
-    html += '<div class="empty"><span class="suits">♛</span>まだ記録がありません。<br>「今夜の卓」から第1回を始めましょう</div>';
+  // シーズン選択肢: データにあるシーズン + 今のシーズン、新しい順 + 通算
+  const seSet = new Set(state.sessions.map(s => seasonOf(s.date)));
+  seSet.add(currentSeason());
+  const seasons = Array.from(seSet).sort((a, b) => b - a);
+  if (statsSeason === undefined) statsSeason = seasons[0];
+  const isAll = statsSeason === 'all';
+  const scope = isAll ? state.sessions : state.sessions.filter(s => seasonOf(s.date) === statsSeason);
+  const scopeName = isAll ? '通算（全シーズン）' : seasonLabel(statsSeason);
+  const rows = computeStandings(scope, isAll);
+
+  let html = '';
+  let tabs = '<div class="mini-tabs" role="tablist" style="flex-wrap:wrap">';
+  seasons.forEach(se => {
+    tabs += '<button role="tab" aria-selected="' + (statsSeason === se) + '" onclick="setStatsSeason(' + se + ')">' + seasonShort(se) + '</button>';
+  });
+  tabs += '<button role="tab" aria-selected="' + isAll + '" onclick="setStatsSeason(\'all\')">通算</button></div>';
+
+  html += '<div class="card"><div class="card-head"><h2>ランキング</h2>' + tabs + '</div>' +
+    '<p class="sub">' + scopeName + '・累計収支で判定（' + scope.length + '回開催）</p>';
+  if (rows.length === 0 || scope.length === 0) {
+    html += '<div class="empty"><span class="suits">♛</span>' + scopeName + 'の記録はまだありません</div>';
   } else {
     rows.forEach((r, i) => {
       html += '<div class="rank-row' + (i === 0 ? ' leader' : '') + '">' +
@@ -1237,15 +1339,18 @@ function renderStats() {
   }
   html += '</div>';
 
-  if (state.sessions.length > 0) {
-    const cols = rows.map(r => r.player);
-    html += '<div class="card"><h2>セッション履歴</h2>' +
+  if (scope.length > 0) {
+    const cols = rows.filter(r => r.played > 0).map(r => r.player);
+    const tagMap = seasonIndexMap();
+    html += '<div class="card"><h2>' + (isAll ? '全セッション履歴' : scopeName + 'の戦績') + '</h2>' +
       '<p class="sub">各回の収支合計。「詳細」でゲームごとの内訳を表示</p>' +
       '<div class="table-scroll"><table class="hist"><thead><tr><th>回</th>';
     cols.forEach(p => { html += '<th>' + esc(p.name) + '</th>'; });
     html += '<th></th></tr></thead><tbody>';
-    state.sessions.slice().reverse().forEach(s => {
-      html += '<tr><td>第' + s.n + '回<span class="sess-date">' + fmtDate(s.date) +
+    scope.slice().reverse().forEach(s => {
+      const m = tagMap[s.n];
+      const tag = isAll ? seasonShort(m.se) + ' 第' + m.idx + '戦' : '第' + m.idx + '戦';
+      html += '<tr><td>' + tag + '<span class="sess-date">' + fmtDate(s.date) +
         (Array.isArray(s.games) ? '・' + s.games.length + 'G' : '') + '</span></td>';
       cols.forEach(p => {
         const e = s.results[p.id];
@@ -1264,12 +1369,13 @@ function renderStats() {
         (isMaster() ? '<button class="del-sess" onclick="deleteSession(' + s.n + ')">削除</button>' : '') + '</td></tr>';
       if (hasGames && detailOpen[s.n]) {
         s.games.forEach((g, gi) => {
-          html += '<tr class="detail"><td>G' + (gi + 1) + '</td>';
+          html += '<tr class="detail"><td>' + (g.label ? esc(g.label) : 'G' + (gi + 1)) + '</td>';
           cols.forEach(p => {
             const pts = g.results[p.id];
             if (pts === undefined) { html += '<td class="val-zero">—</td>'; return; }
+            const fb = gameBusts(g, p.id, pts);
             html += '<td class="num ' + valClass(pts) + '">' + fmtSigned(pts) +
-              (pts <= -BUYIN ? ' <span class="fly-mark">飛</span>' : '') + '</td>';
+              (fb > 0 ? ' <span class="fly-mark">飛' + (fb > 1 ? fb : '') + '</span>' : '') + '</td>';
           });
           html += '<td></td></tr>';
         });
@@ -1287,6 +1393,7 @@ function renderStats() {
     html += '<div class="card"><h2>データ管理</h2>' +
       '<p class="sub">記録はこの端末に保存され、変更のたびに公開データへ自動同期されます</p>' +
       '<div class="tools">' +
+        '<button class="btn btn-ghost" onclick="pullRemote()">公開データを取り込む</button>' +
         '<button class="btn btn-ghost" onclick="openBackup()">バックアップ／復元</button>' +
         '<button class="btn btn-ghost" onclick="openMaster()">マスター設定</button>' +
         '<button class="btn btn-ghost" style="color:var(--red);border-color:var(--red)" onclick="resetAll()">すべて消去</button>' +
