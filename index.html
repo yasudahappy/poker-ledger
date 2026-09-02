@@ -478,7 +478,54 @@
   .sync.err { color: var(--red); }
 
   tr.detail td { background: var(--surface2); font-size: 12px; }
+
+  /* ---- オープニング動画 ---- */
+  #intro {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    z-index: 30;
+    opacity: 1;
+    transition: opacity .45s;
+  }
+  #intro.fade { opacity: 0; pointer-events: none; }
+  #intro video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  #intro .intro-actions {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(28px + env(safe-area-inset-bottom));
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    z-index: 1;
+  }
+  .intro-btn {
+    background: rgba(0, 0, 0, .45);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, .55);
+    border-radius: 999px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 700;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
 </style>
+
+<div id="intro" class="hidden" role="dialog" aria-label="オープニング">
+  <video id="intro-video" src="intro.mp4" playsinline muted preload="auto"></video>
+  <div class="intro-actions">
+    <button id="intro-unmute" class="intro-btn" onclick="introUnmute()">🔊 音を出す</button>
+    <button class="intro-btn" onclick="introClose()">スキップ →</button>
+  </div>
+</div>
 
 <div class="wrap">
   <header class="app">
@@ -1416,6 +1463,44 @@ function render() {
   renderStats();
   updateSyncUI();
 }
+
+/* ---------- オープニング動画 ---------- */
+function introClose() {
+  const el = document.getElementById('intro');
+  if (!el || el.classList.contains('fade') || el.classList.contains('hidden')) return;
+  el.classList.add('fade');
+  setTimeout(() => {
+    el.classList.add('hidden');
+    try { document.getElementById('intro-video').pause(); } catch (e) {}
+  }, 480);
+}
+function introUnmute() { // 自動再生は無音制限があるため、タップで頭から音付き再生
+  const v = document.getElementById('intro-video');
+  v.muted = false;
+  v.volume = 1;
+  v.currentTime = 0;
+  v.play();
+  const b = document.getElementById('intro-unmute');
+  b.classList.add('hidden');
+  clearTimeout(introGuard);
+  introGuard = setTimeout(introClose, 20000);
+}
+let introGuard = null;
+(function initIntro() {
+  const el = document.getElementById('intro');
+  const v = document.getElementById('intro-video');
+  el.classList.remove('hidden');
+  v.addEventListener('ended', introClose);
+  v.addEventListener('error', introClose);
+  introGuard = setTimeout(introClose, 20000); // 保険: 何があっても20秒で閉じる
+  const p = v.play();
+  if (p && p.catch) p.catch(() => {
+    // 自動再生できない環境: ボタンを「▶️ 再生」に変えて待つ（タップなら音も出せる）
+    const b = document.getElementById('intro-unmute');
+    b.textContent = '▶️ 再生';
+  });
+})();
+
 render();
 initRemote();
 </script>
