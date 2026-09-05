@@ -995,42 +995,52 @@ function entryBusts() { // フォーム上の飛び回数 {pid: n}
   });
   return busts;
 }
-function updateSum() {
+function updateSum() { // 検算: 収支合計 = 20 × (参加人数 − 飛び回数合計)。空欄は不参加扱い
   const inputs = Array.from(document.querySelectorAll('input[id^="g-"]'));
-  let sum = 0, filled = 0;
+  const allBusts = entryBusts();
+  let sum = 0, joined = 0, busts = 0, blankBust = false;
   inputs.forEach(i => {
     const v = parseInt(i.value, 10);
-    if (!isNaN(v)) { sum += v; filled += 1; }
+    if (i.value.trim() !== '' && !isNaN(v)) {
+      sum += v;
+      joined += 1;
+      busts += allBusts[i.id.slice(2)] || 0;
+    } else if (allBusts[i.id.slice(2)] > 0) {
+      blankBust = true;
+    }
   });
-  const totalBusts = Object.values(entryBusts()).reduce((a, b) => a + b, 0);
-  const expected = BUYIN * totalBusts;
+  const expected = BUYIN * (joined - busts);
   const el = document.getElementById('sum-indicator');
   if (!el) return;
-  el.textContent = fmtSigned(sum) + ' / ' + fmtSigned(expected) + 'pt';
-  el.className = 'sum-val ' + (filled === inputs.length && sum === expected ? 'sum-ok' : 'sum-ng');
+  el.textContent = '参加' + joined + '人・' + fmtSigned(sum) + ' / ' + fmtSigned(expected) + 'pt';
+  el.className = 'sum-val ' + (joined >= 2 && sum === expected && !blankBust ? 'sum-ok' : 'sum-ng');
 }
 
 function saveGame() {
   if (!state.current) return;
   const inputs = Array.from(document.querySelectorAll('input[id^="g-"]'));
-  const results = {};
+  const allBusts = entryBusts();
+  const results = {}, busts = {};
   for (const inp of inputs) {
     const pid = inp.id.slice(2);
+    if (inp.value.trim() === '') continue; // 空欄 = 不参加
     const v = parseInt(inp.value, 10);
-    if (inp.value.trim() === '' || isNaN(v)) {
-      toast('全員分の収支を入力してください（飛んだ人はマイナス）');
+    if (isNaN(v)) {
+      toast('収支は数字で入力してください（不参加の人は空欄のまま）');
       inp.focus();
       return;
     }
     results[pid] = v;
+    busts[pid] = allBusts[pid] || 0;
   }
-  const busts = entryBusts();
+  const joined = Object.keys(results).length;
+  if (joined < 2) { toast('参加者2人以上の収支を入力してください（不参加の人は空欄）'); return; }
   const sum = Object.values(results).reduce((a, b) => a + b, 0);
   const totalBusts = Object.values(busts).reduce((a, b) => a + b, 0);
-  const expected = BUYIN * totalBusts;
+  const expected = BUYIN * (joined - totalBusts);
   let warns = [];
   if (totalBusts === 0) warns.push('飛びが1回も記録されていません（飛んだ人の「飛」をタップして回数を合わせてください）。');
-  if (sum !== expected) warns.push('収支の合計が ' + fmtSigned(sum) + 'pt です（飛び' + totalBusts + '回なら ' + fmtSigned(expected) + 'pt のはず）。');
+  if (sum !== expected) warns.push('収支の合計が ' + fmtSigned(sum) + 'pt です（参加' + joined + '人・飛び' + totalBusts + '回なら ' + fmtSigned(expected) + 'pt のはず）。');
   if (warns.length && !confirm(warns.join('\n') + '\nこのまま記録しますか？')) return;
 
   state.current.games.push({ results: results, busts: busts, at: new Date().toISOString(), v: 3 });
@@ -1227,7 +1237,7 @@ function renderFlash() { // 速報パネル
 function renderEntryForm() {
   const gameNo = state.current.games.length + 1;
   let html = '<div class="card"><h2>ゲーム' + gameNo + ' の結果を入力</h2>' +
-    '<p class="sub">各自の収支（±）と飛び回数を入力（「飛」をタップで回数切替）</p>';
+    '<p class="sub">各自の収支（±）と飛び回数を入力（「飛」タップで回数切替・不参加の人は空欄）</p>';
   activePlayers().forEach(p => {
     html += '<div class="entry-row">' +
       '<span class="ename">' + esc(p.name) + '</span>' +
@@ -1238,8 +1248,8 @@ function renderEntryForm() {
         'aria-label="' + esc(p.name) + 'の収支" oninput="updateSum()">' +
     '</div>';
   });
-  html += '<div class="sum-line"><span>収支合計（20 × 飛び回数と一致するはず）</span>' +
-    '<span id="sum-indicator" class="sum-val">0 / 0pt</span></div>' +
+  html += '<div class="sum-line"><span>検算: 20 ×（参加人数 − 飛び回数）</span>' +
+    '<span id="sum-indicator" class="sum-val">参加0人・0 / 0pt</span></div>' +
     '<div class="entry-actions">' +
       '<button class="btn btn-ghost" onclick="closeEntry()">やめる</button>' +
       '<button class="btn btn-gold" onclick="saveGame()">記録して次のゲームへ</button>' +
@@ -1300,7 +1310,7 @@ function renderTable() {
       html += '<div class="footer-actions">' +
         '<button class="btn btn-primary btn-block" onclick="endSession()"' +
         (state.current.games.length === 0 ? ' disabled' : '') + '>今夜の卓を締める</button></div>' +
-        '<p class="note">ゲームごとに各自の収支（±）と飛び回数を記録。収支の合計は「' + BUYIN + ' × 飛び回数」と一致するはず。</p>';
+        '<p class="note">ゲームごとに各自の収支（±）と飛び回数を記録。収支の合計は「' + BUYIN + ' ×（参加人数 − 飛び回数）」と一致するはず。</p>';
     } else {
       html += '<p class="note">スコアの入力はマスターだけができます。この画面は自動で最新に更新されます。</p>';
     }
