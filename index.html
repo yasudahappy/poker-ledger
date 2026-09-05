@@ -593,7 +593,7 @@ const BUYIN = 20;
  旧形式の sessions[].results[pid] = {points, busts} も entryNet() で読める。
 */
 function defaultState() {
-  return { players: [], sessions: [], current: null };
+  return { players: [], sessions: [], current: null, rev: 0 };
 }
 function migrateGames(games) { // 残り点形式(v無し) → 収支形式(v:2)
   if (!Array.isArray(games)) return;
@@ -614,7 +614,7 @@ function loadState() {
     if (current && !Array.isArray(current.games)) current = null; // 旧形式の進行中データは破棄
     if (current) migrateGames(current.games);
     s.sessions.forEach(x => migrateGames(x.games));
-    return { players: s.players, sessions: s.sessions, current: current };
+    return { players: s.players, sessions: s.sessions, current: current, rev: s.rev || 0 };
   } catch (e) {
     return defaultState();
   }
@@ -667,7 +667,7 @@ function normalizeRemote(s) { // 公開データの検証と旧形式移行
   if (current && !Array.isArray(current.games)) current = null;
   if (current) migrateGames(current.games);
   s.sessions.forEach(x => migrateGames(x.games));
-  return { players: s.players, sessions: s.sessions, current: current };
+  return { players: s.players, sessions: s.sessions, current: current, rev: s.rev || 0 };
 }
 function hasLocalRecords() {
   return state.players.length > 0 || state.sessions.length > 0 ||
@@ -749,14 +749,23 @@ async function initRemote() {
     const dirty = (() => { try { return localStorage.getItem(DIRTY_KEY) === '1'; } catch (e) { return false; } })();
     const r = await fetchRemote();
     if (r && r.sha) remoteSha = r.sha;
-    if (hasLocalRecords() || dirty) {
-      // ローカルの記録が正。公開側を合わせる（既存スコアは絶対に消さない）
+    const remote = r && r.state ? r.state : null;
+    const localRev = state.rev || 0;
+    const remoteRev = remote ? (remote.rev || 0) : -1;
+    if (dirty && hasLocalRecords()) {
+      // 送信し損ねたローカルの変更がある → ローカルを正として再送
       pushRemote();
-    } else if (r && r.state) {
-      state = r.state;
-      save();
+    } else if (remote && (remoteRev > localRev || !hasLocalRecords())) {
+      // 公開側の方が新しい（別経路で追加された記録など）→ 取り込む
+      state = remote;
+      localStorage.setItem(KEY, JSON.stringify(state));
+      statsSeason = undefined;
       setSync('synced');
       render();
+      if (remoteRev > localRev && hasLocalRecords()) toast('公開データの新しい記録を取り込みました');
+    } else if (hasLocalRecords() && (remoteRev < localRev || !remote)) {
+      // ローカルの方が新しい → 公開側を合わせる
+      pushRemote();
     } else {
       setSync(r === undefined ? 'error' : 'synced');
     }
@@ -843,6 +852,7 @@ function clearMaster() {
 
 function save() {
   if (!isMaster()) return; // 閲覧モードは端末に書き込まない
+  state.rev = (state.rev || 0) + 1; // 更新番号: 新旧比較に使う
   localStorage.setItem(KEY, JSON.stringify(state));
   schedulePush();
 }
