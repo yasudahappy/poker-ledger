@@ -370,6 +370,7 @@
   .rank-main .rname { font-weight: 700; }
   .rank-main .rname .crown { color: var(--gold); }
   .rank-main .rmeta { color: var(--muted); font-size: 12px; }
+  .rank-right { display: flex; flex-direction: column; align-items: flex-end; }
   .rank-total {
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
@@ -378,6 +379,13 @@
     white-space: nowrap;
   }
   .rank-total .u { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .rank-avg {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
 
   .empty {
     text-align: center;
@@ -595,10 +603,10 @@ const BUYIN = 20;
 function defaultState() {
   return { players: [], sessions: [], current: null, rev: 0 };
 }
-function migrateGames(games) { // 残り点形式(v無し) → 収支形式(v:2)
+function migrateGames(games) { // 残り点形式(vフィールド無しの最初期データのみ) → 収支形式(v:2)
   if (!Array.isArray(games)) return;
   games.forEach(g => {
-    if (g.v !== 2) {
+    if (g.v === undefined) { // v:2/v:3 は既に収支形式なので触らない
       Object.keys(g.results).forEach(k => { g.results[k] = g.results[k] - BUYIN; });
       g.v = 2;
     }
@@ -862,6 +870,10 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 function fmtSigned(n) { return (n > 0 ? '+' : '') + n; }
+function fmtAvg(x) { // 小数1桁の符号付き表記（平均用）
+  const v = Math.round(x * 10) / 10;
+  return (v > 0 ? '+' : '') + v;
+}
 function valClass(n) { return n > 0 ? 'val-pos' : n < 0 ? 'val-neg' : 'val-zero'; }
 function entryNet(e) { // セッション記録の収支（旧形式互換）
   return (typeof e.net === 'number') ? e.net : e.points - BUYIN * (1 + e.busts);
@@ -1400,7 +1412,10 @@ function renderStats() {
             (r.player.retired ? ' <span class="rmeta">（休席）</span>' : '') + '</div>' +
           '<div class="rmeta">参加' + r.played + '回・1位' + r.wins + '回・飛び' + r.busts + '回</div>' +
         '</div>' +
-        '<span class="rank-total ' + valClass(r.total) + '">' + fmtSigned(r.total) + '<span class="u">pt</span></span>' +
+        '<div class="rank-right">' +
+          '<span class="rank-total ' + valClass(r.total) + '">' + fmtSigned(r.total) + '<span class="u">pt</span></span>' +
+          (r.played > 0 ? '<span class="rank-avg">平均 ' + fmtAvg(r.total / r.played) + 'pt/回</span>' : '') +
+        '</div>' +
       '</div>';
     });
   }
@@ -1452,6 +1467,11 @@ function renderStats() {
     cols.forEach(p => {
       const r = rows.find(x => x.player.id === p.id);
       html += '<td class="num ' + valClass(r.total) + '">' + fmtSigned(r.total) + '</td>';
+    });
+    html += '<td></td></tr><tr><td>平均/回</td>';
+    cols.forEach(p => {
+      const r = rows.find(x => x.player.id === p.id);
+      html += '<td class="num ' + valClass(r.total) + '">' + (r.played > 0 ? fmtAvg(r.total / r.played) : '—') + '</td>';
     });
     html += '<td></td></tr></tfoot></table></div></div>';
   }
