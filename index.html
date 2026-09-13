@@ -1410,6 +1410,7 @@ function renderStats() {
   });
   tabs += '<button role="tab" aria-selected="' + isAll + '" onclick="setStatsSeason(\'all\')">通算</button></div>';
 
+  html += '<a class="btn btn-ghost btn-block" href="graph.html" style="margin-bottom:14px;text-decoration:none">📈 グラフで見る</a>';
   html += '<div class="card"><div class="card-head"><h2>ランキング</h2>' + tabs + '</div>' +
     '<p class="sub">' + scopeName + '・累計収支で判定（' + scope.length + '回開催）</p>';
   if (rows.length === 0 || scope.length === 0) {

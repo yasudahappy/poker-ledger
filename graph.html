@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>人生オールイン — グラフ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+  :root {
+    --bg: #EFF2EC;
+    --surface: #FFFFFF;
+    --surface2: #E7EDE6;
+    --ink: #1F2A24;
+    --muted: #5C6B62;
+    --line: #D5DED5;
+    --felt: #1B5E43;
+    --felt-ink: #FFFFFF;
+    --gold: #A87B22;
+    --pos: #1E7A46;
+    --neg: #B5402C;
+    --grid: #E3E8E1;
+    --shadow: 0 1px 3px rgba(20, 40, 30, .10);
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+    --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0D211A;
+      --surface: #163227;
+      --surface2: #1C3D30;
+      --ink: #EAE6D8;
+      --muted: #9DB0A4;
+      --line: #29503F;
+      --felt: #2E8B64;
+      --felt-ink: #07130E;
+      --gold: #D9A441;
+      --pos: #6CC08B;
+      --neg: #E06A50;
+      --grid: #214135;
+      --shadow: 0 1px 4px rgba(0, 0, 0, .35);
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+      --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font-family: inherit; cursor: pointer; }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 16px 64px; }
+
+  header.app {
+    padding: 20px 0 12px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .brand .eyebrow { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+  .brand h1 { margin: 2px 0 0; font-family: var(--serif); font-size: 24px; font-weight: 600; }
+  a.back { color: var(--muted); font-size: 13px; text-decoration: none; white-space: nowrap; }
+  a.back:hover { text-decoration: underline; }
+
+  .mini-tabs { display: inline-flex; gap: 4px; background: var(--surface2); border: 1px solid var(--line); border-radius: 999px; padding: 3px; flex-wrap: wrap; }
+  .mini-tabs button { border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 999px; }
+  .mini-tabs button[aria-selected="true"] { background: var(--felt); color: var(--felt-ink); }
+  .scope-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .refresh { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 6px 14px; font-size: 12px; font-weight: 600; }
+
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow); }
+  .tile .k { color: var(--muted); font-size: 11px; font-weight: 600; }
+  .tile .v { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 700; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .v .name { font-family: var(--sans); font-size: 13px; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 16px; margin-bottom: 14px; }
+  .card h2 { margin: 0 0 2px; font-family: var(--serif); font-size: 17px; font-weight: 600; }
+  .card .sub { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+  .chart-box { position: relative; }
+  svg.chart { display: block; width: 100%; height: auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--line); background: transparent; color: var(--ink);
+    border-radius: 999px; padding: 5px 11px; font-size: 12px; font-weight: 600;
+  }
+  .chip.off { opacity: .38; }
+  .chip svg { display: block; }
+
+  #tooltip {
+    position: absolute; pointer-events: none; z-index: 5;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: var(--shadow); padding: 8px 10px; font-size: 12px; min-width: 120px;
+    display: none;
+  }
+  #tooltip .tt-title { font-weight: 700; margin-bottom: 4px; }
+  #tooltip .tt-row { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+  #tooltip .tt-row .nm { display: flex; align-items: center; gap: 5px; color: var(--muted); }
+  #tooltip .tt-row .vl { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  .empty { text-align: center; color: var(--muted); font-size: 13px; padding: 32px 8px; }
+  .val-pos { color: var(--pos); }
+  .val-neg { color: var(--neg); }
+  .note { color: var(--muted); font-size: 11px; margin-top: 8px; }
+</style>
+
+<div class="wrap">
+  <header class="app">
+    <div class="brand">
+      <div class="eyebrow">All-in on Life</div>
+      <h1>グラフ</h1>
+    </div>
+    <a class="back" href="./">← アプリへ戻る</a>
+  </header>
+
+  <div class="scope-row">
+    <div id="scope-tabs" class="mini-tabs" role="tablist"></div>
+    <button class="refresh" onclick="loadData(true)">↻ 更新</button>
+  </div>
+
+  <div id="content"><div class="empty">読み込み中…</div></div>
+</div>
+
+<script>
+'use strict';
+
+const REMOTE = { owner: 'yasudahappy', repo: 'poker-ledger', path: 'data.json', branch: 'data' };
+const SERIES = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'];
+const BUYIN = 20;
+
+let DATA = null;      // 取得した公開データ
+let scopeSel;         // 選択中シーズン番号 | 'all'
+let hidden = {};      // 非表示プレイヤー {pid: true}
+let barMode = 'total';// 'total' | 'avg'
+
+/* ---------- utils ---------- */
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+function fmtSigned(n) { return (n > 0 ? '+' : '') + n; }
+function fmtAvg(x) { const v = Math.round(x * 10) / 10; return (v > 0 ? '+' : '') + v; }
+function entryNet(e) { return (typeof e.net === 'number') ? e.net : e.points - BUYIN * (1 + e.busts); }
+function seasonOf(iso) {
+  const d = new Date(new Date(iso).getTime() - 3 * 3600 * 1000);
+  const idx = (d.getUTCFullYear() - 2026) * 12 + (d.getUTCMonth() + 1 - 9) + 1;
+  return idx < 1 ? 0 : idx;
+}
+function seasonLabel(n) { return n === 0 ? 'プレシーズン' : 'シーズン' + n; }
+function seasonShort(n) { return n === 0 ? 'プレ' : 'S' + n; }
+function currentSeason() { return seasonOf(new Date().toISOString()); }
+function fmtDate(iso) { const d = new Date(iso); return (d.getMonth() + 1) + '/' + d.getDate(); }
+function playerColor(idx) { // プレイヤー配列順で固定割当。9人目以降は色を再利用し破線で区別
+  return { varName: SERIES[idx % 8], dashed: idx >= 8 };
+}
+function cssColor(varName) { return getComputedStyle(document.documentElement).getPropertyValue(varName).trim(); }
+
+/* ---------- data ---------- */
+async function loadData(manual) {
+  try {
+    let s = null;
+    try {
+      const res = await fetch('https://api.github.com/repos/' + REMOTE.owner + '/' + REMOTE.repo + '/contents/' + REMOTE.path + '?ref=' + REMOTE.branch + '&t=' + Date.now(),
+        { headers: { 'Accept': 'application/vnd.github+json' } });
+      if (res.ok) {
+        const j = await res.json();
+        const bin = atob(j.content.replace(/\s/g, ''));
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        s = JSON.parse(new TextDecoder().decode(bytes));
+      }
+    } catch (e) {}
+    if (!s) {
+      const res = await fetch('https://raw.githubusercontent.com/' + REMOTE.owner + '/' + REMOTE.repo + '/' + REMOTE.branch + '/' + REMOTE.path + '?t=' + Date.now());
+      if (!res.ok) throw new Error('fetch failed');
+      s = await res.json();
+    }
+    if (!s || !Array.isArray(s.players) || !Array.isArray(s.sessions)) throw new Error('bad data');
+    DATA = s;
+    if (scopeSel === undefined) {
+      const present = new Set(s.sessions.map(x => seasonOf(x.date)));
+      present.add(currentSeason());
+      scopeSel = Array.from(present).sort((a, b) => b - a)[0];
+    }
+    render();
+    if (manual) flashRefresh();
+  } catch (e) {
+    document.getElementById('content').innerHTML =
+      '<div class="empty">データを読み込めませんでした。<br>電波の良いところで「↻ 更新」を押してください</div>';
+  }
+}
+let refreshTimer = null;
+function flashRefresh() {
+  const b = document.querySelector('.refresh');
+  b.textContent = '✓ 更新しました';
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => { b.textContent = '↻ 更新'; }, 1600);
+}
+
+/* ---------- scope ---------- */
+function setScope(s) { scopeSel = s; render(); }
+function scopeSessions() {
+  return scopeSel === 'all' ? DATA.sessions : DATA.sessions.filter(x => seasonOf(x.date) === scopeSel);
+}
+function toggle(pid) { hidden[pid] = !hidden[pid]; render(); }
+
+/* ---------- render ---------- */
+function render() {
+  if (!DATA) return;
+  const sessions = scopeSessions();
+  const scopeName = scopeSel === 'all' ? '通算' : seasonLabel(scopeSel);
+
+  // シーズンタブ
+  const present = new Set(DATA.sessions.map(x => seasonOf(x.date)));
+  present.add(currentSeason());
+  const seasons = Array.from(present).sort((a, b) => b - a);
+  let tabs = '';
+  seasons.forEach(se => {
+    tabs += '<button role="tab" aria-selected="' + (scopeSel === se) + '" onclick="setScope(' + se + ')">' + seasonShort(se) + '</button>';
+  });
+  tabs += '<button role="tab" aria-selected="' + (scopeSel === 'all') + '" onclick="setScope(\'all\')">通算</button>';
+  document.getElementById('scope-tabs').innerHTML = tabs;
+
+  const c = document.getElementById('content');
+  if (sessions.length === 0) {
+    c.innerHTML = '<div class="card"><div class="empty">' + esc(scopeName) + 'の記録はまだありません</div></div>';
+    return;
+  }
+
+  // プレイヤー別集計・累積系列
+  const stats = {}; // pid: {total, played, busts, cum: [各戦後の累計|null(その時点まで不参加)]}
+  DATA.players.forEach((p, i) => { stats[p.id] = { p, idx: i, total: 0, played: 0, busts: 0, cum: [] }; });
+  sessions.forEach(sess => {
+    DATA.players.forEach(p => {
+      const st = stats[p.id];
+      const e = sess.results[p.id];
+      if (e) { st.total += entryNet(e); st.played += 1; st.busts += e.busts; }
+      st.cum.push(st.played > 0 ? st.total : null);
+    });
+  });
+  const active = DATA.players.filter(p => stats[p.id].played > 0);
+  // デフォルト表示: 参加数上位8人（それ以外は初期OFF・チップで復帰可）
+  const byPlayed = active.slice().sort((a, b) => stats[b.id].played - stats[a.id].played || stats[a.id].idx - stats[b.id].idx);
+  const defaultOn = new Set(byPlayed.slice(0, 8).map(p => p.id));
+  const visible = active.filter(p => hidden[p.id] === undefined ? defaultOn.has(p.id) : !hidden[p.id]);
+
+  // タイル
+  const ranked = active.slice().sort((a, b) => stats[b.id].total - stats[a.id].total);
+  const leader = ranked[0];
+  const bustKing = active.slice().sort((a, b) => stats[b.id].busts - stats[a.id].busts)[0];
+  const gamesTotal = sessions.reduce((a, s) => a + (Array.isArray(s.games) ? s.games.length : 0), 0);
+  let html = '<div class="tiles">' +
+    '<div class="tile"><div class="k">♛ 首位</div><div class="v ' + valCls(stats[leader.id].total) + '"><span class="name">' + esc(leader.name) + '</span> ' + fmtSigned(stats[leader.id].total) + '</div></div>' +
+    '<div class="tile"><div class="k">開催・ゲーム数</div><div class="v">' + sessions.length + '戦・' + gamesTotal + 'G</div></div>' +
+    '<div class="tile"><div class="k">最多飛び</div><div class="v"><span class="name">' + esc(bustKing.name) + '</span> ' + stats[bustKing.id].busts + '回</div></div>' +
+  '</div>';
+
+  // 折れ線チャート
+  html += '<div class="card"><h2>累計収支の推移</h2>' +
+    '<p class="sub">' + esc(scopeName) + '・戦ごとの累計。名前をタップで表示切替</p>' +
+    '<div class="chart-box">' + lineChartSVG(sessions, visible, stats) + '<div id="tooltip"></div></div>' +
+    '<div class="legend">' + legendHTML(active, visible, stats) + '</div>' +
+    '</div>';
+
+  // バーチャート
+  const metric = p => barMode === 'total' ? stats[p.id].total : stats[p.id].total / stats[p.id].played;
+  const fmtM = v => barMode === 'total' ? fmtSigned(Math.round(v)) : fmtAvg(v);
+  const barRanked = active.slice().sort((a, b) => metric(b) - metric(a));
+  html += '<div class="card"><div class="card-head"><h2>収支ランキング</h2>' +
+    '<div class="mini-tabs" role="tablist">' +
+      '<button role="tab" aria-selected="' + (barMode === 'total') + '" onclick="setBarMode(\'total\')">累計</button>' +
+      '<button role="tab" aria-selected="' + (barMode === 'avg') + '" onclick="setBarMode(\'avg\')">平均/回</button>' +
+    '</div></div>' +
+    '<p class="sub">' + esc(scopeName) + (barMode === 'avg' ? '・1回あたり平均収支' : '・累計収支') + '</p>' +
+    barChartSVG(barRanked, stats, metric, fmtM) +
+    '</div>';
+
+  html += '<p class="note">データはアプリと同じ公開スコアから自動取得。プレイヤーの色は固定（9人目以降は破線）。</p>';
+  c.innerHTML = html;
+  attachHover(sessions, visible, stats);
+}
+function valCls(n) { return n > 0 ? 'val-pos' : n < 0 ? 'val-neg' : ''; }
+function setBarMode(m) { barMode = m; render(); }
+
+/* ---------- line chart ---------- */
+const CH = { w: 640, h: 320, top: 14, right: 74, bottom: 26, left: 40 };
+let layoutCache = null;
+
+function niceTicks(min, max, count) {
+  const span = max - min || 1;
+  const step0 = span / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 5, 10].map(m => m * mag).find(s => span / s <= count) || 10 * mag;
+  const ticks = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) ticks.push(Math.round(v));
+  return ticks;
+}
+
+function lineChartSVG(sessions, visible, stats) {
+  const N = sessions.length;
+  let min = 0, max = 0;
+  visible.forEach(p => stats[p.id].cum.forEach(v => {
+    if (v === null) return;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }));
+  if (max === min) max = min + 1;
+  const pad = (max - min) * 0.08;
+  max += pad; min -= pad;
+  const X = i => CH.left + (N === 0 ? 0 : (CH.w - CH.left - CH.right) * i / N); // i=0がスタート(0pt)
+  const Y = v => CH.top + (CH.h - CH.top - CH.bottom) * (1 - (v - min) / (max - min));
+  layoutCache = { X, Y, N, min, max };
+
+  let s = '<svg class="chart" viewBox="0 0 ' + CH.w + ' ' + CH.h + '" role="img" aria-label="累計収支の推移">';
+  // グリッド + y軸ラベル
+  niceTicks(min, max, 5).forEach(t => {
+    const y = Y(t);
+    const zero = t === 0;
+    s += '<line x1="' + CH.left + '" x2="' + (CH.w - CH.right) + '" y1="' + y + '" y2="' + y +
+      '" stroke="' + (zero ? 'var(--muted)' : 'var(--grid)') + '" stroke-width="1"/>' +
+      '<text x="' + (CH.left - 6) + '" y="' + (y + 4) + '" text-anchor="end" font-size="10" fill="var(--muted)" font-family="var(--mono)">' + t + '</text>';
+  });
+  // x軸ラベル（戦番号）
+  for (let i = 1; i <= N; i++) {
+    if (N > 12 && i % 2 === 0 && i !== N) continue;
+    s += '<text x="' + X(i) + '" y="' + (CH.h - 8) + '" text-anchor="middle" font-size="10" fill="var(--muted)">' + i + '戦</text>';
+  }
+  // 系列
+  const endLabels = [];
+  visible.forEach(p => {
+    const st = stats[p.id];
+    const col = playerColor(st.idx);
+    // 不参加区間は直前値を維持（フラット）
+    let last = 0;
+    const path = st.cum.map((v, i) => {
+      if (v !== null) last = v;
+      return 'L' + X(i + 1) + ' ' + Y(last);
+    }).join(' ');
+    s += '<path d="M' + X(0) + ' ' + Y(0) + ' ' + path + '" fill="none" stroke="var(' + col.varName + ')" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"' +
+      (col.dashed ? ' stroke-dasharray="6 4"' : '') + '/>';
+    // 参加した戦にだけドット
+    last = 0;
+    st.cum.forEach((v, i) => {
+      if (v === null) return;
+      const played = sessions[i].results[p.id] !== undefined;
+      if (played) s += '<circle cx="' + X(i + 1) + '" cy="' + Y(v) + '" r="3" fill="var(' + col.varName + ')" stroke="var(--surface)" stroke-width="1.5"/>';
+    });
+    const fin = [...st.cum].reverse().find(v => v !== null);
+    endLabels.push({ y: Y(fin ?? 0), text: p.name, col: col.varName, v: fin ?? 0 });
+  });
+  // 直接ラベル（右端・上位3件・衝突回避）
+  endLabels.sort((a, b) => b.v - a.v);
+  const shown = endLabels.slice(0, 3).sort((a, b) => a.y - b.y);
+  let prevY = -99;
+  shown.forEach(l => {
+    let y = Math.max(l.y, prevY + 13);
+    y = Math.min(Math.max(y, CH.top + 8), CH.h - CH.bottom - 2);
+    prevY = y;
+    s += '<text x="' + (CH.w - CH.right + 8) + '" y="' + (y + 4) + '" font-size="11" font-weight="700" fill="var(' + l.col + ')">' + esc(l.text) + '</text>';
+  });
+  // クロスヘア(後からJSで動かす)
+  s += '<line id="xhair" x1="0" x2="0" y1="' + CH.top + '" y2="' + (CH.h - CH.bottom) + '" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" visibility="hidden"/>';
+  s += '</svg>';
+  return s;
+}
+
+function legendHTML(active, visible, stats) {
+  const visSet = new Set(visible.map(p => p.id));
+  return active.map(p => {
+    const col = playerColor(stats[p.id].idx);
+    const on = visSet.has(p.id);
+    const swatch = '<svg width="18" height="8"><line x1="1" y1="4" x2="17" y2="4" stroke="var(' + col.varName + ')" stroke-width="2.5"' + (col.dashed ? ' stroke-dasharray="4 3"' : '') + '/></svg>';
+    return '<button class="chip' + (on ? '' : ' off') + '" onclick="toggle(\'' + p.id + '\')" aria-pressed="' + on + '">' + swatch + esc(p.name) + '</button>';
+  }).join('');
+}
+
+/* ---------- hover / tap tooltip ---------- */
+function attachHover(sessions, visible, stats) {
+  const svg = document.querySelector('svg.chart');
+  const tip = document.getElementById('tooltip');
+  const xhair = document.getElementById('xhair');
+  if (!svg || !layoutCache) return;
+  const { X, Y, N } = layoutCache;
+
+  function show(ev) {
+    const rect = svg.getBoundingClientRect();
+    const scale = CH.w / rect.width;
+    const px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+    const vx = px * scale;
+    let best = 0, bd = 1e9;
+    for (let i = 0; i <= N; i++) { const d = Math.abs(X(i) - vx); if (d < bd) { bd = d; best = i; } }
+    xhair.setAttribute('x1', X(best)); xhair.setAttribute('x2', X(best));
+    xhair.setAttribute('visibility', 'visible');
+    const title = best === 0 ? 'スタート' : '第' + best + '戦（' + fmtDate(sessions[best - 1].date) + '）';
+    const rows = visible.map(p => {
+      const st = stats[p.id];
+      let v = 0;
+      if (best > 0) { for (let i = best - 1; i >= 0; i--) { if (st.cum[i] !== null) { v = st.cum[i]; break; } } }
+      return { p, v, col: playerColor(st.idx).varName };
+    }).sort((a, b) => b.v - a.v);
+    tip.innerHTML = '<div class="tt-title">' + esc(title) + '</div>' + rows.map(r =>
+      '<div class="tt-row"><span class="nm"><span class="dot" style="background:var(' + r.col + ')"></span>' + esc(r.p.name) + '</span>' +
+      '<span class="vl ' + valCls(r.v) + '">' + fmtSigned(r.v) + '</span></div>').join('');
+    tip.style.display = 'block';
+    const boxW = tip.offsetWidth;
+    const leftPx = X(best) / scale;
+    tip.style.left = Math.min(Math.max(leftPx - boxW / 2, 0), rect.width - boxW) + 'px';
+    tip.style.top = '8px';
+  }
+  function hide() { tip.style.display = 'none'; xhair.setAttribute('visibility', 'hidden'); }
+  svg.addEventListener('pointermove', show);
+  svg.addEventListener('pointerdown', show);
+  svg.addEventListener('pointerleave', hide);
+}
+
+/* ---------- bar chart ---------- */
+function barChartSVG(ranked, stats, metric, fmtM) {
+  const rowH = 30, gap = 8, labelW = 74, valW = 56;
+  const W = 640;
+  const H = ranked.length * (rowH + gap) - gap + 8;
+  const vals = ranked.map(metric);
+  const plotW = W - labelW - valW - 16;
+  const minV = Math.min(0, ...vals), maxV = Math.max(0, ...vals);
+  const span = (maxV - minV) || 1;
+  const xOf = v => labelW + plotW * ((v - minV) / span);
+  const x0 = xOf(0);
+
+  let s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="収支ランキング">';
+  s += '<line x1="' + x0 + '" x2="' + x0 + '" y1="0" y2="' + (H - 4) + '" stroke="var(--grid)" stroke-width="1"/>';
+  ranked.forEach((p, i) => {
+    const st = stats[p.id];
+    const col = playerColor(st.idx);
+    const v = metric(p);
+    const y = i * (rowH + gap);
+    const bx = Math.min(x0, xOf(v)), bw = Math.max(2, Math.abs(xOf(v) - x0));
+    const r = 4;
+    s += '<text x="' + (labelW - 8) + '" y="' + (y + rowH / 2 + 4) + '" text-anchor="end" font-size="12" font-weight="600" fill="var(--ink)">' + esc(p.name) + '</text>';
+    s += '<rect x="' + bx + '" y="' + (y + 4) + '" width="' + bw + '" height="' + (rowH - 8) + '" rx="' + r + '" fill="var(' + col.varName + ')"' + (col.dashed ? ' opacity="0.75"' : '') + '/>';
+    const tx = v >= 0 ? xOf(v) + 6 : xOf(v) - 6;
+    s += '<text x="' + tx + '" y="' + (y + rowH / 2 + 4) + '" text-anchor="' + (v >= 0 ? 'start' : 'end') + '" font-size="12" font-weight="700" font-family="var(--mono)" fill="var(--ink)">' + fmtM(v) + '</text>';
+  });
+  s += '</svg>';
+  return s;
+}
+
+loadData(false);
+</script>
+
+</html>
