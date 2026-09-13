@@ -970,9 +970,13 @@ function reseatPlayer(id) {
 }
 
 /* ---------- session / games ---------- */
+let nextBuyin = 20; // 次に開く卓の持ちチップ（20 or 30）
+function setBuyin(v) { nextBuyin = v; render(); }
+function curBuyin() { return (state.current && state.current.buyin) || BUYIN; }
+
 function startSession() {
   if (activePlayers().length < 2) { toast('プレイヤーを2人以上追加してください'); return; }
-  state.current = { startedAt: new Date().toISOString(), games: [] };
+  state.current = { startedAt: new Date().toISOString(), games: [], buyin: nextBuyin };
   entryOpen = false;
   save();
   render();
@@ -1031,7 +1035,7 @@ function updateSum() { // 検算: 収支合計 = 20 × (参加人数 − 飛び�
       blankBust = true;
     }
   });
-  const expected = BUYIN * (joined - busts);
+  const expected = curBuyin() * (joined - busts);
   const el = document.getElementById('sum-indicator');
   if (!el) return;
   el.textContent = '参加' + joined + '人・' + fmtSigned(sum) + ' / ' + fmtSigned(expected) + 'pt';
@@ -1059,17 +1063,17 @@ function saveGame() {
   if (joined < 2) { toast('参加者2人以上の収支を入力してください（不参加の人は空欄）'); return; }
   const sum = Object.values(results).reduce((a, b) => a + b, 0);
   const totalBusts = Object.values(busts).reduce((a, b) => a + b, 0);
-  const expected = BUYIN * (joined - totalBusts);
+  const expected = curBuyin() * (joined - totalBusts);
   let warns = [];
   if (totalBusts === 0) warns.push('飛びが1回も記録されていません（飛んだ人の「飛」をタップして回数を合わせてください）。');
-  if (sum !== expected) warns.push('収支の合計が ' + fmtSigned(sum) + 'pt です（参加' + joined + '人・飛び' + totalBusts + '回なら ' + fmtSigned(expected) + 'pt のはず）。');
+  if (sum !== expected) warns.push('収支の合計が ' + fmtSigned(sum) + 'pt です（' + curBuyin() + 'pt卓・参加' + joined + '人・飛び' + totalBusts + '回なら ' + fmtSigned(expected) + 'pt のはず）。');
   if (warns.length && !confirm(warns.join('\n') + '\nこのまま記録しますか？')) return;
 
   state.current.games.push({ results: results, busts: busts, at: new Date().toISOString(), v: 3 });
   entryOpen = false;
   save();
   render();
-  toast('ゲーム' + state.current.games.length + ' を記録。全員' + BUYIN + 'ptで再スタート');
+  toast('ゲーム' + state.current.games.length + ' を記録。全員' + curBuyin() + 'ptで再スタート');
 }
 function deleteGame(idx) {
   if (!state.current) return;
@@ -1094,6 +1098,7 @@ function endSession() {
     n: state.sessions.length + 1,
     date: state.current.startedAt,
     endedAt: new Date().toISOString(),
+    buyin: state.current.buyin || BUYIN,
     games: state.current.games,
     results: totals
   });
@@ -1236,7 +1241,7 @@ function renderFlash() { // 速報パネル
     .filter(r => r.p)
     .sort((a, b) => b.t.net - a.t.net);
   if (rows.length === 0) {
-    html += '<div class="empty"><span class="suits">♠ ♥ ♦ ♣</span>全員 ' + BUYIN + 'pt でプレイ中</div>';
+    html += '<div class="empty"><span class="suits">♠ ♥ ♦ ♣</span>全員 ' + curBuyin() + 'pt でプレイ中</div>';
   } else {
     rows.forEach((r, i) => {
       const meta = flashMode === 'night'
@@ -1270,7 +1275,7 @@ function renderEntryForm() {
         'aria-label="' + esc(p.name) + 'の収支" oninput="updateSum()">' +
     '</div>';
   });
-  html += '<div class="sum-line"><span>検算: 20 ×（参加人数 − 飛び回数）</span>' +
+  html += '<div class="sum-line"><span>検算: ' + curBuyin() + ' ×（参加人数 − 飛び回数）</span>' +
     '<span id="sum-indicator" class="sum-val">参加0人・0 / 0pt</span></div>' +
     '<div class="entry-actions">' +
       '<button class="btn btn-ghost" onclick="closeEntry()">やめる</button>' +
@@ -1311,7 +1316,7 @@ function renderTable() {
     const battleNo = state.sessions.filter(s => seasonOf(s.date) === se).length + 1;
     let html = '<div class="session-bar">' +
       '<div><div class="title">' + seasonLabel(se) + ' 第' + battleNo + '戦</div>' +
-      '<div class="date">' + fmtDate(state.current.startedAt) + ' 開始・各ゲーム全員' + BUYIN + 'pt持ち</div></div>' +
+      '<div class="date">' + fmtDate(state.current.startedAt) + ' 開始・各ゲーム全員' + curBuyin() + 'pt持ち</div></div>' +
       (master ? '<button class="btn btn-ghost" onclick="cancelSession()">破棄</button>' : '') +
       '</div>';
 
@@ -1332,7 +1337,7 @@ function renderTable() {
       html += '<div class="footer-actions">' +
         '<button class="btn btn-primary btn-block" onclick="endSession()"' +
         (state.current.games.length === 0 ? ' disabled' : '') + '>今夜の卓を締める</button></div>' +
-        '<p class="note">ゲームごとに各自の収支（±）と飛び回数を記録。収支の合計は「' + BUYIN + ' ×（参加人数 − 飛び回数）」と一致するはず。</p>';
+        '<p class="note">ゲームごとに各自の収支（±）と飛び回数を記録。収支の合計は「' + curBuyin() + ' ×（参加人数 − 飛び回数）」と一致するはず。</p>';
     } else {
       html += '<p class="note">スコアの入力はマスターだけができます。この画面は自動で最新に更新されます。</p>';
     }
@@ -1359,8 +1364,14 @@ function renderTable() {
 
     const seNow = currentSeason();
     const nextBattle = state.sessions.filter(s => seasonOf(s.date) === seNow).length + 1;
+    html += '<div class="card"><div class="card-head"><h2>最初の持ちチップ</h2>' +
+      '<div class="mini-tabs" role="tablist">' +
+        '<button role="tab" aria-selected="' + (nextBuyin === 20) + '" onclick="setBuyin(20)">20pt</button>' +
+        '<button role="tab" aria-selected="' + (nextBuyin === 30) + '" onclick="setBuyin(30)">30pt</button>' +
+      '</div></div>' +
+      '<p class="sub" style="margin:4px 0 0">飛んだ人の再スタートも同じ持ち点。検算式もこのレートで計算されます</p></div>';
     html += '<button class="btn btn-primary btn-block" onclick="startSession()"' +
-      (activePlayers().length < 2 ? ' disabled' : '') + '>' + seasonLabel(seNow) + ' 第' + nextBattle + '戦を開始する（全員 ' + BUYIN + 'pt）</button>';
+      (activePlayers().length < 2 ? ' disabled' : '') + '>' + seasonLabel(seNow) + ' 第' + nextBattle + '戦を開始する（全員 ' + nextBuyin + 'pt）</button>';
     if (state.sessions.length > 0) {
       html += '<p class="note">これまでに ' + state.sessions.length + ' 回開催。通算成績タブで順位を確認できます。</p>';
     }
@@ -1433,7 +1444,8 @@ function renderStats() {
       const m = tagMap[s.n];
       const tag = isAll ? seasonShort(m.se) + ' 第' + m.idx + '戦' : '第' + m.idx + '戦';
       html += '<tr><td>' + tag + '<span class="sess-date">' + fmtDate(s.date) +
-        (Array.isArray(s.games) ? '・' + s.games.length + 'G' : '') + '</span></td>';
+        (Array.isArray(s.games) ? '・' + s.games.length + 'G' : '') +
+        (s.buyin && s.buyin !== 20 ? '・' + s.buyin + 'pt卓' : '') + '</span></td>';
       cols.forEach(p => {
         const e = s.results[p.id];
         if (e) {
